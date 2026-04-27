@@ -1,0 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Design Tokens
+   These power the entire UI. Do NOT remove without first refactoring page.tsx
+   — every component reads from these via var(--token).
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Surfaces */
+  --bg:        #ffffff;
+  --bg-2:      #ffffff;   /* card surface */
+  --bg-3:      #f5f5f4;   /* progress tracks, subtle tile fills */
+
+  /* Foreground / text */
+  --fg:        #0a0a0a;   /* primary text + buttons */
+  --fg-2:      #404040;   /* secondary text */
+  --fg-3:      #737373;   /* tertiary / muted */
+  --fg-4:      #a3a3a3;   /* small-caps labels, captions */
+
+  /* Lines / borders */
+  --line:      #e7e5e4;   /* card borders, dividers */
+  --line-2:    #f1f5f9;   /* lighter divider, faint outlines */
+
+  /* Accent — copper */
+  --accent:    #b87333;
+
+  /* Status */
+  --pass:      #16a34a;   /* passed-check filled circle */
+  --fail-dot:  #d4d4d4;   /* failed-check empty circle border */
+
+  /* Spacing */
+  --outer-padding: 32px;
+  --card-pad-lg:   48px;
+
+  /* Typography (fluid) */
+  --hero-h1:      clamp(36px, 5vw, 56px);
+  --grade-letter: clamp(96px, 12vw, 144px);
+  --grade-score:  clamp(48px, 6vw, 72px);
+}
+
+/* Tighten outer padding on small screens */
+@media (max-width: 640px) {
+  :root {
+    --outer-padding: 20px;
+    --card-pad-lg:   32px;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Base
+   ────────────────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Score Ring animation
+   The Ring component sets --ring-circ and --ring-target inline; this
+   keyframe sweeps stroke-dashoffset from full circumference down to target.
+   ────────────────────────────────────────────────────────────────────────── */
+@keyframes ring-fill {
+  from { stroke-dashoffset: var(--ring-circ); }
+  to   { stroke-dashoffset: var(--ring-target); }
+}
+
+.ring-fill {
+  stroke-dashoffset: var(--ring-target);
+  animation: ring-fill 1.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Print — keep the PDF export ("Export PDF" button → window.print) clean
+   ────────────────────────────────────────────────────────────────────────── */
+@media print {
+  body { background: #ffffff; }
+  button, a[href^="#"] { display: none !important; }
+}

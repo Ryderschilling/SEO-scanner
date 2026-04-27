@@ -1,0 +1,378 @@
+/* app/marketing.css — landing page styles. Import in app/layout.tsx after globals.css. */
+
+/* ── Fonts ───────────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,30..100&family=Geist+Mono:wght@400;500&display=swap');
+
+/* ── Marketing scope (does not leak into /scan) ──────────────────────── */
+.marketing-root {
+  --bg: #fafaf7;
+  --fg: #0a0a0a;
+  --fg-2: #262626;
+  --fg-3: #525252;
+  --fg-4: #a3a3a3;
+  --line: #e5e5e5;
+  --paper: #ffffff;
+  --accent: #b45309;
+
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+.marketing-root .serif { font-family: "Fraunces", Georgia, serif; }
+.marketing-root .mono  { font-family: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace; }
+
+.marketing-root .eyebrow {
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--fg-3);
+  text-transform: uppercase;
+}
+
+/* ── Animations ──────────────────────────────────────────────────────── */
+@keyframes mkt-fade-up   { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes mkt-flicker   { 0%,100% {opacity:1;} 50%{opacity:.45;} 92%{opacity:.7;} }
+@keyframes mkt-pulse-dot { 0%,100% {opacity:1;} 50%{opacity:.3;} }
+
+.marketing-root .fade-up { animation: mkt-fade-up 0.7s cubic-bezier(.2,.7,.3,1) backwards; }
+.marketing-root .flicker { animation: mkt-flicker 1.2s infinite; }
+.marketing-root .pulse-dot-wrap { display: inline-block; }
+.marketing-root .pulse-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); animation: mkt-pulse-dot 1.6s infinite;
+}
+
+/* ── Gridlines + registration marks (shared) ─────────────────────────── */
+.marketing-root .gridlines {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0.5;
+  background-image:
+    linear-gradient(to right, var(--line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--line) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+.marketing-root .regmark {
+  position: absolute; width: 14px; height: 14px;
+  border-top: 1px solid var(--fg-4); border-left: 1px solid var(--fg-4);
+}
+
+/* ── Nav ─────────────────────────────────────────────────────────────── */
+.marketing-root .nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 18px 32px; transition: background .2s, border-color .2s;
+  border-bottom: 1px solid transparent;
+}
+.marketing-root .nav.scrolled {
+  background: rgba(250,250,247,0.85); backdrop-filter: blur(10px);
+  border-bottom-color: var(--line);
+}
+.marketing-root .nav-logo {
+  display: flex; align-items: center; gap: 10px;
+  font-family: "Geist Mono", monospace; font-size: 13px; font-weight: 500;
+  letter-spacing: 0.05em;
+}
+.marketing-root .nav-logo-mark {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--fg);
+  box-shadow: inset 0 0 0 2px var(--bg), inset 0 0 0 3px var(--fg);
+}
+.marketing-root .nav-links { display: flex; align-items: center; gap: 28px; font-size: 13px; color: var(--fg-3); }
+.marketing-root .nav-links a { color: inherit; text-decoration: none; transition: color .15s; }
+.marketing-root .nav-links a:hover { color: var(--fg); }
+
+/* ── Buttons ─────────────────────────────────────────────────────────── */
+.marketing-root .cta-primary {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 14px 22px; font-size: 14px; font-weight: 500;
+  background: var(--fg); color: var(--bg); border: none; border-radius: 0;
+  cursor: pointer; font-family: inherit;
+  transition: background .15s, transform .15s;
+}
+.marketing-root .cta-primary:hover { background: #1a1a1a; transform: translateY(-1px); }
+.marketing-root .cta-secondary {
+  display: inline-flex; align-items: center; gap: 8px; color: var(--fg);
+  text-decoration: none; border: 1px solid var(--fg); transition: background .15s, color .15s;
+}
+.marketing-root .cta-secondary:hover { background: var(--fg); color: var(--bg); }
+
+/* ── ORACLE HERO ─────────────────────────────────────────────────────── */
+.oracle-hero {
+  position: relative; min-height: 100vh; padding: 120px 32px 80px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+
+.oracle-chrome {
+  position: absolute; top: 88px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 32px; font-family: "Geist Mono", monospace;
+  font-size: 10px; letter-spacing: 0.2em; color: var(--fg-3);
+  text-transform: uppercase;
+}
+
+.oracle-text-stack {
+  position: relative; z-index: 10; max-width: 720px;
+  text-align: center; padding: 32px 0;
+}
+
+.oracle-eyebrow { margin-bottom: 18px; }
+
+.oracle-h1 {
+  font-size: var(--tk-headline-size, 80px);
+  line-height: 0.95;
+  letter-spacing: -0.025em;
+  font-weight: var(--tk-headline-weight, 700);
+  color: var(--tk-headline-color, var(--fg));
+  margin: 0 0 20px;
+}
+.oracle-h1-em { font-style: italic; font-weight: 300; opacity: 0.85; }
+
+.oracle-sub {
+  font-size: 17px; line-height: 1.55; max-width: 540px;
+  margin: 0 auto 36px; color: var(--tk-sub-color, var(--fg-3));
+  text-wrap: pretty;
+}
+
+/* Backdrop variants for hero text */
+.tk-backdrop-shadow .oracle-h1 { text-shadow: 0 2px 18px var(--bg), 0 0 32px var(--bg); }
+.tk-backdrop-shadow .oracle-sub { text-shadow: 0 1px 8px var(--bg); }
+.tk-backdrop-scrim .oracle-text-stack {
+  background: radial-gradient(ellipse at center, rgba(250,250,247,0.95) 0%, rgba(250,250,247,0.7) 60%, transparent 100%);
+  padding: 40px 60px;
+}
+.tk-backdrop-blur .oracle-text-stack {
+  background: rgba(250,250,247,0.6); backdrop-filter: blur(8px);
+  padding: 40px 60px; border: 1px solid var(--line);
+}
+.tk-backdrop-card .oracle-text-stack {
+  background: var(--paper);
+  padding: 48px 64px;
+  box-shadow: 0 1px 0 var(--line), 0 24px 60px -20px rgba(0,0,0,0.18);
+}
+
+/* Form */
+.oracle-form {
+  display: flex; gap: 8px; max-width: 480px; margin: 0 auto 18px;
+}
+.oracle-input-wrap {
+  flex: 1; display: flex; align-items: center; gap: 8px;
+  padding: 14px 16px; background: var(--paper);
+  border: 1px solid var(--line); transition: border-color .15s;
+}
+.oracle-input-wrap:focus-within { border-color: var(--fg); }
+.oracle-input-prefix { font-size: 13px; color: var(--fg-4); }
+.oracle-form input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-size: 15px; font-family: inherit; color: var(--fg);
+}
+.oracle-form input::placeholder { color: var(--fg-4); }
+
+.oracle-meta {
+  font-family: "Geist Mono", monospace; font-size: 11px;
+  letter-spacing: 0.05em; color: var(--fg-3);
+  display: flex; align-items: center; gap: 8px; justify-content: center;
+}
+
+/* Constellation behind text */
+.oracle-constellation {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  opacity: var(--tk-constellation-opacity, 0.4);
+  pointer-events: none;
+}
+.oracle-constellation svg { width: min(820px, 90vw); height: auto; }
+
+.oracle-scroll-hint {
+  position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  font-family: "Geist Mono", monospace; font-size: 9px;
+  letter-spacing: 0.3em; color: var(--fg-4);
+}
+
+/* ── FEATURE STRIP ───────────────────────────────────────────────────── */
+.feature-strip {
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  background: var(--paper);
+}
+.feature-strip-inner {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  max-width: 1280px; margin: 0 auto;
+}
+.feature-cell {
+  padding: 56px 32px; border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.feature-cell:last-child { border-right: none; }
+.feature-num { font-size: 56px; line-height: 1; font-weight: 300; color: var(--fg); }
+.feature-label { font-family: "Geist Mono", monospace; font-size: 10px; letter-spacing: 0.2em; color: var(--fg-4); }
+.feature-desc { font-size: 13px; color: var(--fg-3); margin-top: 4px; }
+
+/* ── DISSECTION ──────────────────────────────────────────────────────── */
+.dissect-section {
+  position: relative;
+  padding: 120px 32px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+.dissect-header { max-width: 720px; margin-bottom: 80px; }
+.dissect-h2 {
+  font-size: clamp(40px, 5vw, 64px);
+  line-height: 1; letter-spacing: -0.02em; font-weight: 600;
+  margin: 16px 0 24px;
+}
+.dissect-h2-em { font-style: italic; font-weight: 300; }
+.dissect-lead { font-size: 17px; line-height: 1.55; color: var(--fg-3); max-width: 580px; }
+.dissect-lead em { font-style: italic; }
+
+.dissect-stage {
+  display: grid;
+  grid-template-columns: 1fr 480px 1fr;
+  gap: 32px;
+  align-items: start;
+}
+
+.dissect-annot { position: relative; min-height: 540px; }
+.dissect-annot-l { padding-right: 24px; }
+.dissect-annot-r { padding-left: 24px; }
+
+.annot-item {
+  position: absolute; right: 0; max-width: 240px;
+  text-align: right; transition: opacity .4s;
+}
+.annot-item.annot-r { left: 0; right: auto; text-align: left; }
+.annot-head {
+  display: flex; gap: 8px; align-items: baseline; justify-content: flex-end;
+  margin-bottom: 4px;
+}
+.annot-r .annot-head { justify-content: flex-start; }
+.annot-label { font-family: "Geist Mono", monospace; font-size: 10px; letter-spacing: 0.2em; color: var(--fg-3); }
+.annot-grade { font-size: 22px; font-weight: 600; line-height: 1; }
+.annot-text  { font-size: 11px; color: var(--fg-3); font-family: "Geist Mono", monospace; }
+.annot-leader {
+  position: absolute; right: -24px; top: 14px;
+  width: 24px; height: 1px; background: var(--line);
+}
+.annot-leader-r { right: auto; left: -24px; }
+
+.dissect-frame {
+  position: relative;
+  width: 480px; height: 540px;
+  background: var(--paper); border: 1px solid var(--fg);
+  overflow: hidden;
+}
+.dissect-url-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: 22px;
+  background: var(--fg); color: var(--bg);
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 12px; font-size: 9px; letter-spacing: 0.15em;
+  z-index: 4;
+}
+
+.wf-region {
+  position: absolute; left: 0; right: 0;
+  border-top: 1px dashed var(--line);
+  padding: 8px 16px; transition: opacity .3s;
+}
+.wf-region:first-of-type { border-top: none; }
+.wf-content { display: flex; flex-direction: column; gap: 4px; height: 100%; }
+.wf-line { background: var(--fg-4); border-radius: 1px; opacity: 0.4; }
+.wf-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
+  margin-top: 6px;
+}
+.wf-cell { aspect-ratio: 1.4/1; background: var(--fg-4); opacity: 0.2; }
+.wf-label {
+  position: absolute; top: 4px; right: 8px;
+  font-size: 8px; letter-spacing: 0.2em; color: var(--fg-4);
+}
+
+.scan-line {
+  position: absolute; left: 0; right: 0; height: 2px;
+  z-index: 3; pointer-events: none;
+}
+.scan-pct, .scan-y {
+  position: absolute; top: -10px;
+  font-size: 9px; letter-spacing: 0.1em;
+  background: var(--paper); padding: 2px 6px;
+}
+.scan-pct { left: 8px; }
+.scan-y   { right: 8px; }
+.scan-trail {
+  position: absolute; left: 0; right: 0; top: 0;
+  pointer-events: none;
+}
+
+/* Mentions */
+.dissect-mentions { margin-top: 96px; }
+.mentions-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+}
+.mention-card {
+  padding: 24px; background: var(--paper); border: 1px solid var(--line);
+  transition: opacity .4s;
+}
+.mention-engine {
+  font-size: 10px; letter-spacing: 0.2em; color: var(--fg-4);
+  margin-bottom: 16px;
+}
+.mention-text {
+  font-size: 17px; line-height: 1.4; font-style: italic;
+  color: var(--fg); text-wrap: pretty;
+}
+
+/* ── CTA BLOCK ───────────────────────────────────────────────────────── */
+.cta-block {
+  position: relative; padding: 160px 32px;
+  text-align: center; background: var(--paper);
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+.cta-block .gridlines { opacity: 0.3; }
+.cta-block .eyebrow { position: relative; z-index: 1; }
+.cta-h {
+  position: relative; z-index: 1;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(56px, 8vw, 96px);
+  line-height: 0.95; letter-spacing: -0.03em; font-weight: 600;
+  margin: 24px 0 28px;
+}
+.cta-h em { font-style: italic; font-weight: 300; }
+.cta-sub {
+  position: relative; z-index: 1;
+  font-size: 17px; color: var(--fg-3); max-width: 520px;
+  margin: 0 auto 40px; line-height: 1.55;
+}
+.cta-block .cta-primary { position: relative; z-index: 1; }
+
+/* ── FOOTER ──────────────────────────────────────────────────────────── */
+.marketing-root .foot {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 32px; font-family: "Geist Mono", monospace;
+  font-size: 10px; letter-spacing: 0.15em; color: var(--fg-4);
+}
+.marketing-root .foot-links { display: flex; gap: 24px; }
+.marketing-root .foot-links a { color: inherit; text-decoration: none; }
+.marketing-root .foot-links a:hover { color: var(--fg); }
+
+/* ── Responsive ──────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .oracle-h1 { font-size: clamp(48px, 11vw, 72px); }
+  .feature-strip-inner { grid-template-columns: repeat(2, 1fr); }
+  .feature-cell { border-right: none; border-bottom: 1px solid var(--line); }
+  .feature-cell:nth-child(odd) { border-right: 1px solid var(--line); }
+  .dissect-stage { grid-template-columns: 1fr; }
+  .dissect-annot { min-height: auto; display: flex; flex-direction: column; gap: 16px; }
+  .dissect-annot .annot-item { position: static; max-width: none; }
+  .annot-leader { display: none; }
+  .dissect-frame { width: 100%; max-width: 480px; margin: 0 auto; }
+  .mentions-grid { grid-template-columns: repeat(2, 1fr); }
+  .nav-links { gap: 16px; }
+  .hide-sm { display: none; }
+}
+@media (max-width: 600px) {
+  .oracle-hero { padding: 100px 20px 60px; }
+  .oracle-form { flex-direction: column; }
+  .mentions-grid { grid-template-columns: 1fr; }
+  .feature-num { font-size: 40px; }
+}
