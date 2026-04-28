@@ -10,7 +10,14 @@ import type {
 } from "@/lib/types";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type Phase = "hero" | "loading" | "result" | "compare";
+type Phase = "hero" | "loading" | "gate" | "result" | "compare";
+
+interface LeadData {
+  name: string;
+  email: string;
+  business: string;
+  challenge?: string;
+}
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const GRADE_LABELS: Record<string, string> = {
@@ -1067,6 +1074,262 @@ function StickyTOC({
   );
 }
 
+// ── EmailGate ─────────────────────────────────────────────────────────────────
+function EmailGate({
+  result,
+  onSubmit,
+}: {
+  result: AnalysisResult;
+  onSubmit: (data: LeadData) => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [business, setBusiness] = useState("");
+  const [challenge, setChallenge] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, boolean>>({});
+
+  const validate = () => {
+    const e: Record<string, boolean> = {};
+    if (!name.trim()) e.name = true;
+    if (!email.trim() || !email.includes("@")) e.email = true;
+    if (!business.trim()) e.business = true;
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const handleSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
+    if (!validate()) return;
+    setSubmitting(true);
+    await onSubmit({ name: name.trim(), email: email.trim(), business: business.trim(), challenge: challenge.trim() || undefined });
+  };
+
+  const inputStyle = (hasError: boolean): React.CSSProperties => ({
+    width: "100%",
+    padding: "10px 12px",
+    fontSize: 14,
+    border: `1px solid ${hasError ? "var(--accent)" : "var(--line)"}`,
+    borderRadius: 10,
+    background: "var(--bg)",
+    color: "var(--fg)",
+    outline: "none",
+    boxSizing: "border-box",
+  });
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      {/* Blurred grade backdrop */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "var(--bg)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            fontSize: 400,
+            fontWeight: 800,
+            letterSpacing: "-0.06em",
+            lineHeight: 1,
+            color: "var(--fg)",
+            opacity: 0.04,
+            userSelect: "none",
+            filter: "blur(6px)",
+          }}
+        >
+          {result.grade}
+        </div>
+      </div>
+
+      {/* Gate card */}
+      <div
+        style={{
+          ...card,
+          position: "relative",
+          width: "100%",
+          maxWidth: 420,
+          padding: 28,
+        }}
+      >
+        {/* Score preview */}
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              fontSize: 12,
+              color: "var(--accent)",
+              fontWeight: 600,
+              padding: "4px 12px",
+              border: "1px solid var(--line)",
+              borderRadius: 999,
+              marginBottom: 12,
+            }}
+          >
+            <span
+              className="pulse-dot"
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "var(--accent)",
+                display: "inline-block",
+              }}
+            />
+            Scan complete
+          </div>
+          <h2
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              letterSpacing: "-0.02em",
+              color: "var(--fg)",
+              marginBottom: 6,
+            }}
+          >
+            Your results are ready.
+          </h2>
+          <p style={{ fontSize: 14, color: "var(--fg-3)", lineHeight: 1.55 }}>
+            Enter your info below to unlock your full visibility report for{" "}
+            <strong style={{ color: "var(--fg)" }}>
+              {new URL(result.url.startsWith("http") ? result.url : `https://${result.url}`).hostname}
+            </strong>
+            .
+          </p>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <input
+            type="text"
+            placeholder="Your name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            style={inputStyle(!!errors.name)}
+            disabled={submitting}
+          />
+          <input
+            type="email"
+            placeholder="Email address"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={inputStyle(!!errors.email)}
+            disabled={submitting}
+          />
+          <input
+            type="text"
+            placeholder="Business name"
+            value={business}
+            onChange={(e) => setBusiness(e.target.value)}
+            style={inputStyle(!!errors.business)}
+            disabled={submitting}
+          />
+          <input
+            type="text"
+            placeholder="Biggest challenge getting found online? (optional)"
+            value={challenge}
+            onChange={(e) => setChallenge(e.target.value)}
+            style={inputStyle(false)}
+            disabled={submitting}
+          />
+          <button
+            type="submit"
+            disabled={submitting}
+            style={{
+              marginTop: 4,
+              padding: "12px 20px",
+              fontSize: 14,
+              fontWeight: 600,
+              background: "var(--fg)",
+              color: "var(--bg)",
+              border: "none",
+              borderRadius: 10,
+              cursor: submitting ? "default" : "pointer",
+              opacity: submitting ? 0.6 : 1,
+              transition: "opacity 0.15s",
+            }}
+          >
+            {submitting ? "Loading…" : "See my results →"}
+          </button>
+        </form>
+
+        <p
+          style={{
+            marginTop: 14,
+            fontSize: 11,
+            color: "var(--fg-4)",
+            textAlign: "center",
+            lineHeight: 1.5,
+          }}
+        >
+          No spam. No sales pressure. Just your report.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── CtaBanner ─────────────────────────────────────────────────────────────────
+function CtaBanner() {
+  return (
+    <div
+      style={{
+        ...card,
+        padding: "20px 24px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 16,
+        flexWrap: "wrap",
+        borderLeft: "3px solid var(--accent)",
+      }}
+    >
+      <div>
+        <p style={{ fontSize: 15, fontWeight: 700, color: "var(--fg)", marginBottom: 4 }}>
+          Want these fixed for you?
+        </p>
+        <p style={{ fontSize: 13, color: "var(--fg-3)", lineHeight: 1.5, maxWidth: 400 }}>
+          Book a free 20-minute call. I&apos;ll walk through exactly what&apos;s holding your site back and show you how to fix it.
+        </p>
+      </div>
+      <a
+        href="https://calendly.com/ryderscott33"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          flexShrink: 0,
+          padding: "10px 18px",
+          fontSize: 13,
+          fontWeight: 600,
+          background: "var(--fg)",
+          color: "var(--bg)",
+          borderRadius: 10,
+          textDecoration: "none",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Book a free call →
+      </a>
+    </div>
+  );
+}
+
 const EXAMPLE_URLS = ["aisyndicate.co", "stripe.com", "wikipedia.org"];
 
 // ── Hero ──────────────────────────────────────────────────────────────────────
@@ -1790,6 +2053,8 @@ export default function Home() {
   const [compareResult, setCompareResult] = useState<CompareResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"single" | "compare">("single");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [hasGated, setHasGated] = useState(false);
 
   const saveRecentUrl = (url: string) => {
     try {
@@ -1840,13 +2105,38 @@ export default function Home() {
           setResult(data as AnalysisResult);
           setScanKey((k) => String(Number(k) + 1));
           setTab("single");
-          setPhase("result");
+          // Route to gate for first-time non-admin users
+          const alreadyGated = document.cookie.includes("oracle_gated=1");
+          const adminMode = document.cookie.includes("oracle_admin=1");
+          setPhase(adminMode || alreadyGated ? "result" : "gate");
         }
       }
     } catch {
       setError("Failed to connect. Make sure the URL is publicly accessible.");
       setPhase("hero");
     }
+  };
+
+  const handleGateSubmit = async (data: LeadData) => {
+    try {
+      await fetch("/api/capture-lead", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...data,
+          url: scanUrl,
+          grade: result?.grade,
+          score: result?.scores.overall.percentage,
+          timestamp: new Date().toISOString(),
+        }),
+      });
+    } catch {
+      // Never block the user if lead capture fails
+    }
+    document.cookie = "oracle_gated=1; max-age=2592000; path=/";
+    setHasGated(true);
+    setPhase("result");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleReset = () => {
@@ -1869,11 +2159,24 @@ export default function Home() {
     // In hero/loading phase: just switch the input mode, no reset
   };
 
-  // Auto-fire scan when arriving from the landing page with /scan?url=...
-  // Strip the query param after kicking off so refresh doesn't re-scan.
+  // Admin bypass + gate status + auto-fire scan from landing page
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
+
+    // Admin bypass: visit /scan?admin=r9d3rAdm1n to set a 30-day cookie
+    if (params.get("admin") === "r9d3rAdm1n") {
+      document.cookie = "oracle_admin=1; max-age=2592000; path=/";
+      window.history.replaceState({}, "", "/scan");
+    }
+
+    const cookies = document.cookie;
+    const adminMode = cookies.includes("oracle_admin=1");
+    const gated = cookies.includes("oracle_gated=1");
+    setIsAdmin(adminMode);
+    setHasGated(gated);
+
+    // Auto-fire scan from landing page /scan?url=...
     const u = params.get("url");
     if (u) {
       window.history.replaceState({}, "", "/scan");
@@ -1883,7 +2186,16 @@ export default function Home() {
   }, []);
 
   const showTOC = phase === "result" || phase === "compare";
-  const tocSections = tab === "compare" ? COMPARE_TOC_SECTIONS : TOC_SECTIONS;
+  const resultTocSections = [
+    { id: "overview", label: "Overview" },
+    { id: "fixes",    label: "Top fixes" },
+    ...(result?.pageSpeed ? [{ id: "speed", label: "Performance" }] : []),
+    { id: "ai",       label: "AI prompt" },
+    { id: "seo",      label: "SEO" },
+    { id: "aeo",      label: "AEO" },
+    { id: "geo",      label: "GEO" },
+  ];
+  const tocSections = tab === "compare" ? COMPARE_TOC_SECTIONS : resultTocSections;
 
   const contentStyle: React.CSSProperties = {
     maxWidth: 680,
@@ -1920,11 +2232,16 @@ export default function Home() {
 
           {phase === "loading" && <LoadingCard url={scanUrl} />}
 
+          {phase === "gate" && result && (
+            <EmailGate result={result} onSubmit={handleGateSubmit} />
+          )}
+
           {phase === "result" && result && (
             <>
               <GradeCard result={result} scanKey={scanKey} />
               <SubScores result={result} scanKey={scanKey} />
               <TopFixes checks={result.checks} />
+              {!isAdmin && <CtaBanner />}
               {result.pageSpeed && (
                 <PageSpeedCard data={result.pageSpeed} />
               )}
