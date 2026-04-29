@@ -26,11 +26,10 @@ const ENGINES = [
   { id: "YOU", label: "YOU.COM", x: 0.50, y: 1.00 },
 ];
 
-export default function LandingOracle({ onScan }: { onScan?: (url: string) => void }) {
+export default function LandingOracle() {
   const [phase, setPhase] = useState<"querying" | "answered">("querying");
   const [activeIdx, setActiveIdx] = useState(0);
   const [tick, setTick] = useState(0);
-  const [url, setUrl] = useState("");
 
   useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 1000);
@@ -58,13 +57,6 @@ export default function LandingOracle({ onScan }: { onScan?: (url: string) => vo
       return () => clearTimeout(t);
     }
   }, [phase]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const v = url.trim();
-    if (!v) return;
-    onScan?.(v);
-  };
 
   const accent = BAKED.accent;
 
@@ -102,25 +94,14 @@ export default function LandingOracle({ onScan }: { onScan?: (url: string) => vo
           Eight AI engines. One scan. We grade your site for classical SEO, answer-engine
           optimization, and generative-engine visibility — then tell you exactly what to fix.
         </p>
-        <form className="oracle-form fade-up" onSubmit={handleSubmit} style={{ animationDelay: "0.4s" }}>
-          <div className="oracle-input-wrap">
-            <span className="oracle-input-prefix mono">https://</span>
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="your-site.com"
-              spellCheck={false}
-              autoComplete="off"
-            />
-          </div>
-          <button type="submit" className="cta-primary">
+        <div className="oracle-form fade-up" style={{ animationDelay: "0.4s" }}>
+          <a href="/scan" className="cta-primary">
             Scan now
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M3 7h8m0 0L7 3m4 4l-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-          </button>
-        </form>
+          </a>
+        </div>
         <div className="oracle-meta fade-up" style={{ animationDelay: "0.5s" }}>
           <span className="pulse-dot-wrap"><span className="pulse-dot" /></span>
           Free · No signup · Results in ~30 seconds

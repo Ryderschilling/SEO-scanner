@@ -54,6 +54,39 @@ const LOADING_STEPS = [
   "PageSpeed insights",
 ];
 
+// L3 Editorial Anticipation loading screen constants
+const SCAN_STEPS_TIMED = [
+  { label: "Fetching HTML",           duration: 0.8 },
+  { label: "Parsing 13 SEO checks",   duration: 1.2 },
+  { label: "Parsing 6 AEO checks",    duration: 0.9 },
+  { label: "Parsing 5 GEO checks",    duration: 0.9 },
+  { label: "PageSpeed insights",      duration: 1.4 },
+  { label: "Compiling score",         duration: 0.6 },
+] as const;
+
+const TRIVIA_NOTES = [
+  {
+    n: "01",
+    title: "Did you know?",
+    body: "Google truncates titles at about 60 characters. Most sites we scan have titles 12 characters too long.",
+  },
+  {
+    n: "02",
+    title: "Fun fact.",
+    body: "ChatGPT cites a webpage roughly once every 380 queries. AEO signals can more than double that rate.",
+  },
+  {
+    n: "03",
+    title: "Worth knowing.",
+    body: "FAQ schema is the single highest-ROI thing most B2B sites are missing. It takes about 20 minutes to add.",
+  },
+  {
+    n: "04",
+    title: "From the trenches.",
+    body: "The average site we scan recovers 27 visibility points after just 3 targeted fixes.",
+  },
+] as const;
+
 const TOC_SECTIONS = [
   { id: "overview", label: "Overview" },
   { id: "fixes",    label: "Top fixes" },
@@ -138,6 +171,30 @@ function useIsMobile(breakpoint = 640) {
     return () => window.removeEventListener("resize", check);
   }, [breakpoint]);
   return isMobile;
+}
+
+// Drives L3 loading animation — cycles through steps indefinitely
+function useScanProgress(steps: typeof SCAN_STEPS_TIMED) {
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [stepProgress, setStepProgress] = useState(0);
+  useEffect(() => {
+    let raf: number;
+    const start = performance.now();
+    const totalDur = steps[activeIdx].duration * 1000;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / totalDur);
+      setStepProgress(p);
+      if (p >= 1) {
+        const next = (activeIdx + 1) % steps.length;
+        setTimeout(() => { setActiveIdx(next); setStepProgress(0); }, next === 0 ? 600 : 0);
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [activeIdx, steps]);
+  return { activeIdx, stepProgress };
 }
 
 // ── Primitives ────────────────────────────────────────────────────────────────
@@ -354,9 +411,21 @@ function CategoryCard({
 }) {
   const cfg = CATEGORY_CFG[category];
   const passed = checks.filter((c) => c.passed).length;
+  const [open, setOpen] = useState(false);
   return (
     <div id={id} style={card}>
-      <div style={{ padding: "20px 20px 16px", position: "relative" }}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          width: "100%",
+          padding: "20px 20px 16px",
+          position: "relative",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
         <span
           style={{
             position: "absolute",
@@ -373,85 +442,58 @@ function CategoryCard({
             style={{
               display: "flex",
               justifyContent: "space-between",
-              alignItems: "baseline",
+              alignItems: "center",
               marginBottom: 4,
             }}
           >
-            <div
-              style={{ display: "flex", alignItems: "baseline", gap: 6 }}
-            >
-              <span
-                style={{
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: "var(--fg)",
-                }}
-              >
+            <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: "var(--fg)" }}>
                 {cfg.label}
               </span>
               <span style={{ fontSize: 12, color: "var(--fg-3)" }}>
                 · {cfg.title}
               </span>
             </div>
-            <span
-              style={{
-                fontSize: 28,
-                fontWeight: 800,
-                letterSpacing: "-0.02em",
-                color: "var(--fg)",
-              }}
-            >
-              {score.percentage}
-              <span
-                style={{
-                  fontSize: 14,
-                  fontWeight: 400,
-                  color: "var(--fg-4)",
-                }}
-              >
-                /100
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 28, fontWeight: 800, letterSpacing: "-0.02em", color: "var(--fg)" }}>
+                {score.percentage}
+                <span style={{ fontSize: 14, fontWeight: 400, color: "var(--fg-4)" }}>
+                  /100
+                </span>
               </span>
-            </span>
+              <Caret open={open} />
+            </div>
           </div>
-          <p
-            style={{
-              fontSize: 12,
-              color: "var(--fg-3)",
-              lineHeight: 1.5,
-              maxWidth: 480,
-            }}
-          >
+          <p style={{ fontSize: 12, color: "var(--fg-3)", lineHeight: 1.5, maxWidth: 480 }}>
             {cfg.desc}
           </p>
-          <p
-            style={{
-              fontSize: 11,
-              color: "var(--fg-4)",
-              fontWeight: 500,
-              marginTop: 4,
-            }}
-          >
+          <p style={{ fontSize: 11, color: "var(--fg-4)", fontWeight: 500, marginTop: 4 }}>
             {passed} of {checks.length} passed
           </p>
         </div>
-      </div>
-      {checks.map((check) => (
+      </button>
+      {open && checks.map((check) => (
         <CheckRow key={check.id} check={check} />
       ))}
     </div>
   );
 }
 
-// ── GradeCard ─────────────────────────────────────────────────────────────────
-function GradeCard({
+// ── OverviewCard ──────────────────────────────────────────────────────────────
+// Desktop: horizontal header — grade + score left, rings right
+// Mobile:  stacked card (grade → score → rings)
+function OverviewCard({
   result,
   scanKey,
+  desktop = false,
 }: {
   result: AnalysisResult;
   scanKey: string;
+  desktop?: boolean;
 }) {
   const score = useTick(result.scores.overall.percentage);
   const [barWidth, setBarWidth] = useState(0);
+
   useEffect(() => {
     const raf = requestAnimationFrame(() =>
       setBarWidth(result.scores.overall.percentage)
@@ -459,68 +501,102 @@ function GradeCard({
     return () => cancelAnimationFrame(raf);
   }, [result.scores.overall.percentage]);
 
-  return (
-    <div
-      id="overview"
-      style={{ ...card, padding: "var(--card-pad-lg)", textAlign: "center", overflow: "visible" }}
-    >
-      <p
-        style={{
-          fontSize: 12,
-          fontWeight: 500,
-          color: "var(--fg-3)",
-          marginBottom: 8,
-        }}
-      >
-        {result.url}
-      </p>
-      <div
-        style={{
-          fontSize: "var(--grade-letter)",
-          fontWeight: 800,
-          letterSpacing: "-0.06em",
-          lineHeight: 0.9,
-          color: "var(--fg)",
-        }}
-      >
-        {result.grade}
-      </div>
-      <p
-        style={{
-          fontSize: 14,
-          fontWeight: 600,
-          color: "var(--accent)",
-          marginTop: 8,
-        }}
-      >
-        {GRADE_LABELS[result.grade] ?? "Unknown"}
-      </p>
-      <div style={{ marginTop: 28 }}>
-        <span
-          style={{
-            fontSize: "var(--grade-score)",
+  if (desktop) {
+    return (
+      <div id="overview" style={{ ...card, padding: "36px 44px", overflow: "visible" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 36 }}>
+
+          {/* Grade letter */}
+          <div style={{
+            fontSize: 140,
             fontWeight: 800,
-            letterSpacing: "-0.04em",
+            letterSpacing: "-0.06em",
             lineHeight: 1,
             color: "var(--fg)",
-          }}
-        >
+            flexShrink: 0,
+          }}>
+            {result.grade}
+          </div>
+
+          {/* Score + meta */}
+          <div style={{ flexShrink: 0 }}>
+            <p style={{ fontSize: 13, color: "var(--fg-3)", marginBottom: 4 }}>{result.url}</p>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "var(--accent)", marginBottom: 12 }}>
+              {GRADE_LABELS[result.grade] ?? "Unknown"}
+            </p>
+            <div>
+              <span style={{ fontSize: 56, fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: "var(--fg)" }}>
+                {score}
+              </span>
+              <span style={{ fontSize: 20, color: "var(--fg-4)", marginLeft: 3 }}>/100</span>
+            </div>
+            <p style={{ fontSize: 12, color: "var(--fg-3)", marginTop: 4 }}>Overall visibility score</p>
+            <div style={{ marginTop: 12, width: 200, height: 5, background: "var(--bg-3)", borderRadius: 3, overflow: "hidden" }}>
+              <div
+                key={scanKey}
+                style={{
+                  height: "100%",
+                  background: "var(--fg)",
+                  borderRadius: 3,
+                  width: `${barWidth}%`,
+                  transition: "width 1.4s cubic-bezier(0.22,1,0.36,1)",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Vertical divider */}
+          <div style={{ width: 1, alignSelf: "stretch", background: "var(--line)", flexShrink: 0, margin: "0 8px" }} />
+
+          {/* Category rings — right side */}
+          <div style={{ display: "flex", gap: 48, flex: 1, justifyContent: "center", alignItems: "center" }}>
+            {(["seo", "aeo", "geo"] as Category[]).map((cat) => (
+              <a
+                key={cat}
+                href={`#${cat}`}
+                style={{ display: "flex", flexDirection: "column", alignItems: "center", textDecoration: "none", gap: 10 }}
+              >
+                <Ring
+                  percentage={result.scores[cat].percentage}
+                  ringKey={`${scanKey}-${cat}`}
+                  size={110}
+                />
+                <span style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: "var(--fg-3)",
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                }}>
+                  {CATEGORY_CFG[cat].label}
+                </span>
+              </a>
+            ))}
+          </div>
+
+        </div>
+      </div>
+    );
+  }
+
+  // Mobile: stacked layout
+  return (
+    <div id="overview" style={{ ...card, padding: "var(--card-pad-lg)", textAlign: "center", overflow: "visible" }}>
+      <p style={{ fontSize: 12, fontWeight: 500, color: "var(--fg-3)", marginBottom: 8 }}>{result.url}</p>
+      <div style={{ fontSize: "var(--grade-letter)", fontWeight: 800, letterSpacing: "-0.06em", lineHeight: 0.9, color: "var(--fg)" }}>
+        {result.grade}
+      </div>
+      <p style={{ fontSize: 14, fontWeight: 600, color: "var(--accent)", marginTop: 8 }}>
+        {GRADE_LABELS[result.grade] ?? "Unknown"}
+      </p>
+      <div style={{ marginTop: 20 }}>
+        <span style={{ fontSize: "var(--grade-score)", fontWeight: 800, letterSpacing: "-0.04em", lineHeight: 1, color: "var(--fg)" }}>
           {score}
         </span>
         <span style={{ fontSize: 18, color: "var(--fg-4)" }}>/100</span>
       </div>
-      <p style={{ fontSize: 12, color: "var(--fg-3)", marginTop: 4 }}>
-        Overall visibility score
-      </p>
-      <div
-        style={{
-          marginTop: 24,
-          height: 6,
-          background: "var(--bg-3)",
-          borderRadius: 3,
-          overflow: "hidden",
-        }}
-      >
+      <p style={{ fontSize: 12, color: "var(--fg-3)", marginTop: 4 }}>Overall visibility score</p>
+      <div style={{ marginTop: 20, height: 6, background: "var(--bg-3)", borderRadius: 3, overflow: "hidden" }}>
         <div
           key={scanKey}
           style={{
@@ -532,44 +608,12 @@ function GradeCard({
           }}
         />
       </div>
-    </div>
-  );
-}
-
-// ── SubScores ─────────────────────────────────────────────────────────────────
-function SubScores({
-  result,
-  scanKey,
-}: {
-  result: AnalysisResult;
-  scanKey: string;
-}) {
-  const isMobile = useIsMobile();
-  const ringSize = isMobile ? 68 : 88;
-  return (
-    <div style={{ ...card, padding: 24 }}>
-      <div className="ring-grid">
+      <div style={{ borderTop: "1px solid var(--line)", margin: "24px -48px 0" }} />
+      <div className="ring-grid" style={{ marginTop: 24 }}>
         {(["seo", "aeo", "geo"] as Category[]).map((cat) => (
-          <a
-            key={cat}
-            href={`#${cat}`}
-            className="ring-cell"
-          >
-            <Ring
-              percentage={result.scores[cat].percentage}
-              ringKey={`${scanKey}-${cat}`}
-              size={ringSize}
-            />
-            <span
-              style={{
-                marginTop: 8,
-                fontSize: 12,
-                fontWeight: 600,
-                color: "var(--fg-3)",
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-              }}
-            >
+          <a key={cat} href={`#${cat}`} className="ring-cell">
+            <Ring percentage={result.scores[cat].percentage} ringKey={`${scanKey}-${cat}`} size={68} />
+            <span style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: "var(--fg-3)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
               {CATEGORY_CFG[cat].label}
             </span>
           </a>
@@ -1290,38 +1334,46 @@ function CtaBanner() {
   return (
     <div
       style={{
-        ...card,
-        padding: "20px 24px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 16,
-        flexWrap: "wrap",
-        borderLeft: "3px solid var(--accent)",
+        background: "var(--fg)",
+        borderRadius: 16,
+        padding: "56px 40px",
+        textAlign: "center",
       }}
     >
-      <div>
-        <p style={{ fontSize: 15, fontWeight: 700, color: "var(--fg)", marginBottom: 4 }}>
-          Want these fixed for you?
-        </p>
-        <p style={{ fontSize: 13, color: "var(--fg-3)", lineHeight: 1.5, maxWidth: 400 }}>
-          Book a free 20-minute call. I&apos;ll walk through exactly what&apos;s holding your site back and show you how to fix it.
-        </p>
-      </div>
+      <p style={{
+        fontSize: 32,
+        fontWeight: 800,
+        letterSpacing: "-0.03em",
+        lineHeight: 1.1,
+        color: "var(--bg)",
+        marginBottom: 14,
+      }}>
+        Want these fixed for you?
+      </p>
+      <p style={{
+        fontSize: 15,
+        color: "rgba(255,255,255,0.55)",
+        lineHeight: 1.65,
+        maxWidth: 420,
+        margin: "0 auto 32px",
+      }}>
+        Book a free 20-minute call. I&apos;ll walk through exactly what&apos;s holding your site back and give you a clear plan to fix it.
+      </p>
       <a
-        href="https://calendly.com/ryderscott33"
+        href="https://calendly.com/ryderschilling/free-20-minute-call"
         target="_blank"
         rel="noopener noreferrer"
         style={{
-          flexShrink: 0,
-          padding: "10px 18px",
-          fontSize: 13,
-          fontWeight: 600,
-          background: "var(--fg)",
-          color: "var(--bg)",
+          display: "inline-block",
+          padding: "14px 32px",
+          fontSize: 15,
+          fontWeight: 700,
+          background: "var(--bg)",
+          color: "var(--fg)",
           borderRadius: 10,
           textDecoration: "none",
           whiteSpace: "nowrap",
+          letterSpacing: "-0.01em",
         }}
       >
         Book a free call →
@@ -2044,6 +2096,1313 @@ function CompareView({
   );
 }
 
+// ── LoadingViewL3 ─────────────────────────────────────────────────────────────
+// Design 03: Editorial Anticipation — dark, full-screen, two-column.
+// Left: big serif headline + animated step ledger + live % counter.
+// Right: rotating "while you wait" trivia notes.
+function LoadingViewL3({ url }: { url: string }) {
+  const { activeIdx, stepProgress } = useScanProgress(SCAN_STEPS_TIMED);
+  const overall = (activeIdx + stepProgress) / SCAN_STEPS_TIMED.length;
+  const triviaIdx = activeIdx % TRIVIA_NOTES.length;
+  const isMobile = useIsMobile(768);
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#171717",
+        color: "#FAFAF7",
+        fontFamily: "'Inter', system-ui, sans-serif",
+        padding: isMobile
+          ? "40px 24px 48px"
+          : "clamp(40px, 5vw, 56px) clamp(40px, 6vw, 72px)",
+        boxSizing: "border-box",
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+        gap: isMobile ? 48 : "clamp(40px, 6vw, 72px)",
+        alignItems: isMobile ? "start" : "stretch",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* Ambient gradient — orange warmth in corners */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundImage: [
+            "radial-gradient(circle at 18% 28%, rgba(232,116,58,0.10) 0%, transparent 48%)",
+            "radial-gradient(circle at 82% 72%, rgba(232,116,58,0.05) 0%, transparent 48%)",
+          ].join(", "),
+          pointerEvents: "none",
+        }}
+      />
+
+      {/* ── LEFT: headline + progress ── */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          position: "relative",
+          minHeight: isMobile ? "auto" : "calc(100vh - 112px)",
+        }}
+      >
+        {/* Top: scanning indicator + headline */}
+        <div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              fontSize: 11,
+              marginBottom: 32,
+            }}
+          >
+            <div
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: "#E8743A",
+                boxShadow: "0 0 10px rgba(232,116,58,0.6)",
+                animation: "scanPulse 1.4s ease-in-out infinite",
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                textTransform: "uppercase",
+                letterSpacing: "0.12em",
+                fontWeight: 600,
+                color: "#FAFAF7",
+              }}
+            >
+              Scanning
+            </span>
+            <span style={{ color: "#525252" }}>·</span>
+            <span
+              style={{
+                fontFamily: "ui-monospace, monospace",
+                color: "#727272",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {safeHostname(url)}
+            </span>
+          </div>
+
+          <h1
+            style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: isMobile ? "clamp(52px, 14vw, 72px)" : "clamp(56px, 7vw, 96px)",
+              fontWeight: 400,
+              letterSpacing: "-0.03em",
+              lineHeight: 0.95,
+              margin: "0 0 20px",
+              color: "#FAFAF7",
+            }}
+          >
+            Reading
+            <br />
+            your site.
+          </h1>
+
+          <p
+            style={{
+              fontSize: 15,
+              color: "#727272",
+              lineHeight: 1.55,
+              maxWidth: 380,
+              margin: 0,
+            }}
+          >
+            Checking 36 signals across SEO, answer engines, and AI citation
+            tools. Usually under two seconds.
+          </p>
+        </div>
+
+        {/* Bottom: percentage + bar + step ledger */}
+        <div style={{ marginTop: isMobile ? 48 : 0 }}>
+          {/* Big live percentage */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              gap: 10,
+              marginBottom: 14,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontSize: isMobile ? "clamp(60px, 16vw, 80px)" : "clamp(60px, 7vw, 88px)",
+                lineHeight: 0.9,
+                fontWeight: 400,
+                letterSpacing: "-0.04em",
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {Math.round(overall * 100)}
+            </span>
+            <span style={{ fontSize: 16, color: "#a3a3a3" }}>%</span>
+          </div>
+
+          {/* Progress bar */}
+          <div
+            style={{
+              height: 1,
+              background: "rgba(250,250,247,0.08)",
+              marginBottom: 20,
+              position: "relative",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                top: -1,
+                left: 0,
+                height: 3,
+                width: `${overall * 100}%`,
+                background: "#E8743A",
+                boxShadow: "0 0 8px rgba(232,116,58,0.5)",
+                transition: "width 0.15s linear",
+                borderRadius: 1,
+              }}
+            />
+          </div>
+
+          {/* Step ledger */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {SCAN_STEPS_TIMED.map((s, i) => {
+              const state =
+                i < activeIdx ? "done" : i === activeIdx ? "active" : "pending";
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    fontSize: 13,
+                    color:
+                      state === "active"
+                        ? "#FAFAF7"
+                        : state === "done"
+                        ? "#a3a3a3"
+                        : "#525252",
+                    opacity: state === "pending" ? 0.45 : 1,
+                    transition: "all 0.3s",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "ui-monospace, monospace",
+                      fontSize: 10,
+                      color: state === "active" ? "#E8743A" : "inherit",
+                      width: 24,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      fontWeight: state === "active" ? 600 : 400,
+                    }}
+                  >
+                    {s.label}
+                  </span>
+                  {state === "done" && (
+                    <span style={{ fontSize: 10, color: "#525252" }}>✓</span>
+                  )}
+                  {state === "active" && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "#E8743A",
+                        fontFamily: "ui-monospace, monospace",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      {Math.round(stepProgress * 100)}%
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ── RIGHT: rotating trivia ── (hidden on mobile) */}
+      {!isMobile && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            position: "relative",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "#525252",
+              fontWeight: 600,
+              marginBottom: 28,
+            }}
+          >
+            While you wait —
+          </div>
+
+          {/* Trivia cards — absolute-stacked, fade in/out */}
+          <div style={{ position: "relative", minHeight: 320 }}>
+            {TRIVIA_NOTES.map((t, i) => (
+              <div
+                key={i}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  opacity: i === triviaIdx ? 1 : 0,
+                  transform:
+                    i === triviaIdx ? "translateY(0)" : "translateY(20px)",
+                  transition: "opacity 0.6s, transform 0.6s",
+                  pointerEvents: i === triviaIdx ? "auto" : "none",
+                }}
+              >
+                <div
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: 14,
+                    fontStyle: "italic",
+                    color: "#E8743A",
+                    marginBottom: 20,
+                  }}
+                >
+                  Note №{t.n}
+                </div>
+                <div
+                  style={{
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontSize: "clamp(38px, 4.5vw, 56px)",
+                    fontWeight: 400,
+                    lineHeight: 1.05,
+                    letterSpacing: "-0.03em",
+                    marginBottom: 24,
+                    color: "#FAFAF7",
+                  }}
+                >
+                  {t.title}
+                </div>
+                <div
+                  style={{
+                    fontSize: 17,
+                    lineHeight: 1.6,
+                    color: "#a3a3a3",
+                    maxWidth: 400,
+                  }}
+                >
+                  {t.body}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Dot indicators */}
+          <div style={{ display: "flex", gap: 6, marginTop: 36 }}>
+            {TRIVIA_NOTES.map((_, i) => (
+              <div
+                key={i}
+                style={{
+                  width: 24,
+                  height: 2,
+                  borderRadius: 1,
+                  background:
+                    i === triviaIdx
+                      ? "#E8743A"
+                      : "rgba(250,250,247,0.08)",
+                  transition: "background 0.3s",
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes scanPulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50%       { opacity: 0.4; transform: scale(0.7); }
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ── ResultViewD3 ─────────────────────────────────────────────────────────────
+// Design 03: Guided Narrative — single column, scroll-driven story.
+// Replaces the old desktop/mobile result layout.
+function ResultViewD3({
+  result,
+  isAdmin,
+  onReset,
+}: {
+  result: AnalysisResult;
+  isAdmin: boolean;
+  onReset: () => void;
+}) {
+  const [done, setDone] = useState<Set<string>>(new Set());
+  const [activeChannel, setActiveChannel] = useState<string | null>(null);
+  const [shared, setShared] = useState(false);
+  const isMobile = useIsMobile(640);
+
+  const toggleDone = (id: string) => {
+    setDone((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  // Ordered fix list (failed checks, highest impact first)
+  const fixes = result.checks
+    .filter((c) => !c.passed)
+    .sort((a, b) => b.maxScore - a.maxScore);
+
+  const totalMinutes = fixes.reduce(
+    (sum, f) => sum + (f.maxScore >= 6 ? 25 : f.maxScore >= 3 ? 15 : 5),
+    0
+  );
+
+  const recovered = fixes
+    .filter((f) => done.has(f.id))
+    .reduce((sum, f) => sum + f.maxScore, 0);
+
+  const projectedScore = Math.min(
+    100,
+    result.scores.overall.percentage + recovered
+  );
+
+  const top5Score = Math.min(
+    100,
+    result.scores.overall.percentage +
+      fixes.slice(0, 5).reduce((sum, f) => sum + f.maxScore, 0)
+  );
+
+  const fixEverythingScore = Math.min(
+    100,
+    result.scores.overall.percentage +
+      fixes.reduce((sum, f) => sum + f.maxScore, 0)
+  );
+
+  const getDiagnosis = (): string => {
+    const g = result.grade;
+    const aeoScore = result.scores.aeo.percentage;
+    const geoScore = result.scores.geo.percentage;
+    if (g === "A")
+      return "Your site is highly visible across search and AI engines. You're in the top tier of web visibility.";
+    if (g === "B")
+      return "Your site performs well for traditional search. A few targeted fixes will unlock strong AI engine visibility too.";
+    if (g === "C") {
+      if (aeoScore < 50 || geoScore < 50)
+        return "Your site has solid SEO foundations but is missing key signals that AI tools use to surface and cite content.";
+      return "Solid foundations are in place. Addressing the gaps below will meaningfully lift your overall visibility score.";
+    }
+    if (g === "D")
+      return "Your site shows up for traditional Google searches, but AI tools like ChatGPT and Perplexity rarely cite it. A few quick fixes will recover most of the gap.";
+    return "Your site is nearly invisible to both search engines and AI tools. The fixes below are high-impact and achievable — start here.";
+  };
+
+  const handleShare = () => {
+    navigator.clipboard.writeText(window.location.href);
+    setShared(true);
+    setTimeout(() => setShared(false), 1500);
+  };
+
+  // Grade color: good grades stay dark, poor grades get the orange accent
+  const gradeColor =
+    result.grade === "A" || result.grade === "B" ? "#171717" : "#E8743A";
+
+  // ── Style constants ──────────────────────────────────────────────────
+  const eyebrow: React.CSSProperties = {
+    fontSize: 11,
+    letterSpacing: "0.14em",
+    textTransform: "uppercase",
+    color: "#a3a3a3",
+    fontWeight: 600,
+    marginBottom: 24,
+  };
+
+  const chapterTitle: React.CSSProperties = {
+    fontFamily: "'Instrument Serif', Georgia, serif",
+    fontSize: "clamp(28px, 4vw, 44px)",
+    lineHeight: 1.1,
+    fontWeight: 400,
+    letterSpacing: "-0.02em",
+    margin: "0 0 16px",
+    color: "#171717",
+  };
+
+  const statLabel: React.CSSProperties = {
+    fontSize: 11,
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    color: "#a3a3a3",
+    fontWeight: 600,
+  };
+
+  const ghostBtn: React.CSSProperties = {
+    padding: "5px 10px",
+    fontSize: 12,
+    fontFamily: "inherit",
+    background: "transparent",
+    color: "#a3a3a3",
+    border: "1px solid rgba(255,255,255,0.15)",
+    borderRadius: 4,
+    cursor: "pointer",
+  };
+
+  const section: React.CSSProperties = {
+    padding: isMobile
+      ? "32px 20px"
+      : "clamp(40px, 6vw, 80px) clamp(20px, 5vw, 48px)",
+    maxWidth: 920,
+    margin: "0 auto",
+    borderTop: "1px solid rgba(23,23,23,0.06)",
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        fontFamily: "'Inter', system-ui, sans-serif",
+        background: "rgb(243, 243, 243)",
+        color: "rgb(52, 52, 52)",
+      }}
+    >
+      {/* ── Sticky black header ───────────────────────────────────────── */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+          background: "rgb(0,0,0)",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          padding: isMobile ? "11px 20px" : "13px clamp(20px, 5vw, 48px)",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 12,
+        }}
+      >
+        {/* Left — brand + URL (desktop) or brand only (mobile) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, minWidth: 0 }}>
+          <span style={{ fontWeight: 700, color: "white", letterSpacing: -0.2, flexShrink: 0, fontSize: isMobile ? 12 : 13 }}>
+            AI Visibility Scanner
+          </span>
+          {!isMobile && (
+            <>
+              <span style={{ color: "#525252" }}>·</span>
+              <span style={{ color: "#727272", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {safeHostname(result.url)}
+              </span>
+              <span style={{ color: "#525252", flexShrink: 0 }}>·</span>
+              <span style={{ color: "#525252", fontSize: 12, flexShrink: 0 }}>
+                {new Date(result.timestamp).toLocaleDateString()}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Right — progress + actions (desktop) or just New scan (mobile) */}
+        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 8 : 12, flexShrink: 0 }}>
+          {!isMobile && (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#727272" }}>
+                <div style={{ width: 72, height: 3, background: "rgba(255,255,255,0.1)", borderRadius: 2, position: "relative" }}>
+                  <div
+                    style={{
+                      position: "absolute", inset: 0,
+                      width: fixes.length > 0 ? `${(done.size / fixes.length) * 100}%` : "0%",
+                      background: "white", borderRadius: 2, transition: "width .3s",
+                    }}
+                  />
+                </div>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>{done.size}/{fixes.length} fixed</span>
+              </div>
+              <button onClick={handleShare} style={ghostBtn}>{shared ? "✓ Copied" : "Share"}</button>
+              <button onClick={() => window.print()} style={ghostBtn}>Export</button>
+            </>
+          )}
+          <button onClick={onReset} style={{ ...ghostBtn, fontSize: isMobile ? 11 : 12 }}>← New scan</button>
+        </div>
+      </div>
+
+      {/* ── 01 — The score ────────────────────────────────────────────── */}
+      <section
+        style={{
+          padding: isMobile
+            ? "36px 20px 40px"
+            : "clamp(56px, 8vw, 96px) clamp(20px, 5vw, 48px) clamp(48px, 6vw, 80px)",
+          maxWidth: 920,
+          margin: "0 auto",
+        }}
+      >
+        <div style={eyebrow}>01 — The score</div>
+        <h1
+          style={{
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            fontSize: "clamp(48px, 8vw, 84px)",
+            lineHeight: 1.02,
+            fontWeight: 400,
+            margin: "0 0 6px",
+            letterSpacing: "-0.03em",
+            color: "#171717",
+          }}
+        >
+          Your site scored a{" "}
+          <span style={{ color: gradeColor }}>{result.grade}</span>.
+        </h1>
+        <div
+          style={{
+            width: 40,
+            height: 2,
+            background: "rgba(23,23,23,0.15)",
+            marginBottom: 28,
+          }}
+        />
+        <p
+          style={{
+            fontFamily: "'Instrument Serif', Georgia, serif",
+            fontStyle: "italic",
+            fontSize: "clamp(16px, 2.5vw, 20px)",
+            lineHeight: 1.6,
+            color: "#525252",
+            margin: "0 0 40px",
+            maxWidth: 660,
+          }}
+        >
+          {getDiagnosis()}
+        </p>
+
+        {/* Stats strip — locked 3-col grid so it never wraps */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            background: "white",
+            border: "1px solid rgba(23,23,23,0.07)",
+            borderRadius: 8,
+            overflow: "hidden",
+          }}
+        >
+          {[
+            {
+              label: "Score today",
+              value: result.scores.overall.percentage,
+              suffix: "/100",
+              color: gradeColor,
+              extra: null,
+            },
+            {
+              label: isMobile ? "Fix top 5" : "Fix top 5 issues",
+              value: top5Score,
+              suffix: "/100",
+              color: gradeColor,
+              extra:
+                top5Score > result.scores.overall.percentage
+                  ? `+${top5Score - result.scores.overall.percentage}`
+                  : null,
+            },
+            {
+              label: "Fix everything",
+              value: fixEverythingScore,
+              suffix: "/100",
+              color: gradeColor,
+              extra:
+                fixEverythingScore > result.scores.overall.percentage
+                  ? `+${fixEverythingScore - result.scores.overall.percentage}`
+                  : null,
+            },
+          ].map((stat, i) => (
+            <div
+              key={i}
+              style={{
+                padding: isMobile ? "14px 12px" : "20px 28px",
+                borderRight: i < 2 ? "1px solid rgba(23,23,23,0.06)" : "none",
+              }}
+            >
+              <div style={{ ...statLabel, fontSize: isMobile ? 9 : 11 }}>{stat.label}</div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 3, marginTop: isMobile ? 5 : 8, flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontSize: isMobile ? 26 : 40,
+                    fontWeight: 700,
+                    fontVariantNumeric: "tabular-nums",
+                    color: stat.color,
+                    lineHeight: 1,
+                  }}
+                >
+                  {stat.value}
+                </span>
+                <span style={{ color: "#a3a3a3", fontSize: isMobile ? 11 : 15 }}>{stat.suffix}</span>
+                {stat.extra && (
+                  <span style={{ fontSize: isMobile ? 10 : 13, color: "#E8743A" }}>{stat.extra}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── 02 — Where you stand ──────────────────────────────────────── */}
+      <section style={section}>
+        <div style={eyebrow}>02 — Where you stand</div>
+        <h2 style={chapterTitle}>Three channels, three different stories.</h2>
+        <p
+          style={{
+            fontSize: 15,
+            color: "#525252",
+            lineHeight: 1.6,
+            maxWidth: 580,
+            marginBottom: 36,
+          }}
+        >
+          Each channel measures how a different kind of system finds and surfaces
+          your site. Click any row to see what it tested.
+        </p>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {(["seo", "aeo", "geo"] as Category[]).map((cat) => {
+            const cfg = CATEGORY_CFG[cat];
+            const s = result.scores[cat];
+            const catChecks = result.checks.filter((c) => c.category === cat);
+            const passedCount = catChecks.filter((c) => c.passed).length;
+            const isActive = activeChannel === cat;
+            const isLow = s.percentage < 70;
+
+            return (
+              <div key={cat}>
+                <div
+                  onClick={() => setActiveChannel(isActive ? null : cat)}
+                  style={{
+                    padding: isMobile ? "16px 16px" : "clamp(16px, 3vw, 28px) clamp(16px, 3vw, 32px)",
+                    background: "white",
+                    border: "1px solid rgba(23,23,23,0.07)",
+                    borderRadius: isActive ? "8px 8px 0 0" : 8,
+                    cursor: "pointer",
+                    display: "grid",
+                    gridTemplateColumns: isMobile ? "56px 1fr" : "80px 1fr auto",
+                    gap: isMobile ? "12px" : "clamp(12px, 3vw, 32px)",
+                    alignItems: "center",
+                  }}
+                >
+                  {/* Big score number */}
+                  <div
+                    style={{
+                      fontFamily: "'Instrument Serif', Georgia, serif",
+                      fontSize: "clamp(44px, 6vw, 64px)",
+                      lineHeight: 1,
+                      fontWeight: 400,
+                      letterSpacing: "-0.03em",
+                      color: isLow ? "#E8743A" : "#171717",
+                    }}
+                  >
+                    {s.percentage}
+                  </div>
+
+                  {/* Name + desc + bar */}
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        marginBottom: 6,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: 15,
+                          fontWeight: 700,
+                          letterSpacing: -0.3,
+                          color: "#171717",
+                        }}
+                      >
+                        {cfg.title}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: "0.06em",
+                          padding: "2px 7px",
+                          border: "1px solid rgba(23,23,23,0.1)",
+                          borderRadius: 3,
+                          color: "#727272",
+                        }}
+                      >
+                        {cfg.label}
+                      </span>
+                      {/* Check count inline on mobile */}
+                      {isMobile && (
+                        <span style={{ fontSize: 11, color: "#a3a3a3", marginLeft: "auto" }}>
+                          {passedCount}/{catChecks.length} passed
+                        </span>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 13,
+                        color: "#727272",
+                        lineHeight: 1.5,
+                        maxWidth: 440,
+                        marginBottom: 12,
+                      }}
+                    >
+                      {cfg.desc}
+                    </div>
+                    <div
+                      style={{
+                        height: 4,
+                        background: "rgba(23,23,23,0.07)",
+                        borderRadius: 2,
+                        maxWidth: 440,
+                        position: "relative",
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          inset: 0,
+                          width: `${s.percentage}%`,
+                          background: isLow ? "#E8743A" : "#171717",
+                          borderRadius: 2,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Check count — hidden on mobile (grid col removed) */}
+                  {!isMobile && (
+                    <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <div style={{ fontSize: 14, color: "#525252", fontVariantNumeric: "tabular-nums" }}>
+                        {passedCount}
+                        <span style={{ color: "#a3a3a3" }}>/{catChecks.length}</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#a3a3a3", marginTop: 2 }}>checks passed</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Expanded checks for this channel */}
+                {isActive && (
+                  <div
+                    style={{
+                      background: "white",
+                      border: "1px solid rgba(23,23,23,0.07)",
+                      borderTop: "none",
+                      borderRadius: "0 0 8px 8px",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {catChecks.map((check) => (
+                      <div
+                        key={check.id}
+                        style={{
+                          padding: "13px clamp(16px, 3vw, 32px)",
+                          borderTop: "1px solid rgba(23,23,23,0.04)",
+                          display: "flex",
+                          alignItems: "flex-start",
+                          gap: 12,
+                        }}
+                      >
+                        <span
+                          style={{
+                            flexShrink: 0,
+                            width: 16,
+                            height: 16,
+                            borderRadius: "50%",
+                            background: check.passed ? "#16a34a" : "none",
+                            border: check.passed
+                              ? "none"
+                              : "1.5px solid #d4d4d4",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            marginTop: 2,
+                          }}
+                        >
+                          {check.passed && (
+                            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                              <path
+                                d="M1.5 4L3 5.5L6.5 2"
+                                stroke="white"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          )}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 500,
+                              color: "#171717",
+                              marginBottom: check.passed ? 0 : 3,
+                            }}
+                          >
+                            {check.name}
+                          </div>
+                          {!check.passed && (
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: "#727272",
+                                lineHeight: 1.5,
+                              }}
+                            >
+                              {check.recommendation}
+                            </div>
+                          )}
+                          {check.detail && !check.passed && (
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "#a3a3a3",
+                                marginTop: 4,
+                                fontFamily: "'Geist Mono', monospace",
+                              }}
+                            >
+                              {check.detail}
+                            </div>
+                          )}
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: "#a3a3a3",
+                            flexShrink: 0,
+                            fontVariantNumeric: "tabular-nums",
+                          }}
+                        >
+                          {check.score}/{check.maxScore}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ── PageSpeed (when available) ────────────────────────────────── */}
+      {result.pageSpeed &&
+        !(
+          result.pageSpeed.mobile.score === 0 &&
+          result.pageSpeed.desktop.score === 0
+        ) && (
+          <section style={section}>
+            <div style={eyebrow}>02b — Performance</div>
+            <h2 style={chapterTitle}>How fast it loads.</h2>
+            <p
+              style={{
+                fontSize: 15,
+                color: "#525252",
+                lineHeight: 1.6,
+                maxWidth: 580,
+                marginBottom: 36,
+              }}
+            >
+              Google PageSpeed — real-world load metrics.
+            </p>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                gap: 4,
+              }}
+            >
+              {(["mobile", "desktop"] as const).map((strat) => {
+                const s = result.pageSpeed![strat];
+                const isFast = s.score >= 90;
+                return (
+                  <div
+                    key={strat}
+                    style={{
+                      padding: "28px 32px",
+                      background: "white",
+                      border: "1px solid rgba(23,23,23,0.07)",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <div style={{ ...statLabel, marginBottom: 12, textTransform: "capitalize" }}>
+                      {strat}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 48,
+                        fontWeight: 700,
+                        color: isFast ? "#171717" : "#E8743A",
+                        lineHeight: 1,
+                        marginBottom: 12,
+                      }}
+                    >
+                      {s.score}
+                    </div>
+                    <div
+                      style={{
+                        height: 4,
+                        background: "rgba(23,23,23,0.07)",
+                        borderRadius: 2,
+                        marginBottom: 20,
+                      }}
+                    >
+                      <div
+                        style={{
+                          height: "100%",
+                          width: `${s.score}%`,
+                          background: isFast ? "#171717" : "#E8743A",
+                          borderRadius: 2,
+                        }}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr 1fr",
+                        gap: 8,
+                        textAlign: "center",
+                      }}
+                    >
+                      {[
+                        { label: "LCP", value: formatMs(s.lcp) },
+                        { label: "FCP", value: formatMs(s.fcp) },
+                        { label: "TBT", value: formatMs(s.tbt) },
+                      ].map((m) => (
+                        <div key={m.label}>
+                          <div
+                            style={{
+                              fontSize: 14,
+                              fontWeight: 600,
+                              color: "#171717",
+                            }}
+                          >
+                            {m.value}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 10,
+                              color: "#a3a3a3",
+                              marginTop: 3,
+                              letterSpacing: "0.06em",
+                              textTransform: "uppercase",
+                            }}
+                          >
+                            {m.label}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+      {/* ── 03 — What to fix ─────────────────────────────────────────── */}
+      <section style={section}>
+        <div style={eyebrow}>03 — What to fix</div>
+        <h2 style={chapterTitle}>
+          {fixes.filter((f) => !done.has(f.id)).length > 0
+            ? "Start with these."
+            : "All fixed. Nice work."}
+        </h2>
+        <p
+          style={{
+            fontSize: 15,
+            color: "#525252",
+            lineHeight: 1.6,
+            maxWidth: 580,
+            marginBottom: 36,
+          }}
+        >
+          Ordered by impact. Check the box when you&apos;ve handled one — your
+          projected score updates as you go.
+        </p>
+
+        {fixes.length === 0 && (
+          <div
+            style={{
+              padding: 40,
+              textAlign: "center",
+              background: "white",
+              borderRadius: 8,
+              border: "1px solid rgba(23,23,23,0.07)",
+            }}
+          >
+            <p style={{ fontSize: 18, fontWeight: 600, color: "#171717" }}>
+              Perfect score!
+            </p>
+            <p style={{ fontSize: 14, color: "#727272", marginTop: 8 }}>
+              No issues found. Your site is fully optimized.
+            </p>
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {fixes.map((fix, i) => {
+            const isDone = done.has(fix.id);
+            const effort =
+              fix.maxScore >= 6 ? "~25 min" : fix.maxScore >= 3 ? "~15 min" : "~5 min";
+            const catCfg = CATEGORY_CFG[fix.category];
+            const catBorderColor =
+              fix.category === "aeo"
+                ? "rgba(232,116,58,0.3)"
+                : "rgba(23,23,23,0.1)";
+            const catTextColor =
+              fix.category === "aeo" ? "#E8743A" : "#727272";
+
+            return (
+              <article
+                key={fix.id}
+                style={{
+                  background: "white",
+                  border: `1px solid ${isDone ? "rgba(23,23,23,0.04)" : "rgba(23,23,23,0.07)"}`,
+                  borderRadius: 8,
+                  padding: "clamp(16px, 3vw, 24px) clamp(16px, 3vw, 28px)",
+                  opacity: isDone ? 0.45 : 1,
+                  transition: "opacity .25s",
+                }}
+              >
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "28px 1fr auto",
+                    gap: "clamp(12px, 2vw, 20px)",
+                    alignItems: "flex-start",
+                  }}
+                >
+                  {/* Checkbox */}
+                  <button
+                    onClick={() => toggleDone(fix.id)}
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: "50%",
+                      border: `1.5px solid ${isDone ? "#171717" : "rgba(23,23,23,0.18)"}`,
+                      background: isDone ? "#171717" : "transparent",
+                      cursor: "pointer",
+                      padding: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      marginTop: 2,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isDone && (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                        <path
+                          d="M2 5L4 7L8 3"
+                          stroke="white"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    )}
+                  </button>
+
+                  {/* Content */}
+                  <div>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        marginBottom: 8,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "'Instrument Serif', Georgia, serif",
+                          fontSize: 12,
+                          color: "#a3a3a3",
+                          fontStyle: "italic",
+                        }}
+                      >
+                        № {String(i + 1).padStart(2, "0")}
+                      </span>
+                      <h3
+                        style={{
+                          margin: 0,
+                          fontSize: "clamp(14px, 2vw, 17px)",
+                          fontWeight: 600,
+                          letterSpacing: -0.2,
+                          color: "#171717",
+                          textDecoration: isDone ? "line-through" : "none",
+                        }}
+                      >
+                        {fix.name}
+                      </h3>
+                      <span
+                        style={{
+                          fontSize: 9,
+                          fontWeight: 700,
+                          letterSpacing: "0.06em",
+                          padding: "2px 6px",
+                          borderRadius: 3,
+                          border: `1px solid ${catBorderColor}`,
+                          color: catTextColor,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {catCfg.label}
+                      </span>
+                    </div>
+                    <p
+                      style={{
+                        margin: "0 0 10px",
+                        fontSize: 14,
+                        color: "#525252",
+                        lineHeight: 1.55,
+                      }}
+                    >
+                      {fix.recommendation}
+                    </p>
+                    {fix.detail && (
+                      <p
+                        style={{
+                          margin: 0,
+                          fontSize: 12,
+                          color: "#a3a3a3",
+                          lineHeight: 1.6,
+                          paddingLeft: 12,
+                          borderLeft: "2px solid rgba(23,23,23,0.08)",
+                          fontFamily: "'Geist Mono', monospace",
+                        }}
+                      >
+                        {fix.detail}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Impact */}
+                  <div style={{ textAlign: "right", whiteSpace: "nowrap", flexShrink: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: "#E8743A",
+                        fontVariantNumeric: "tabular-nums",
+                      }}
+                    >
+                      +{fix.maxScore} pts
+                    </div>
+                    <div style={{ fontSize: 11, color: "#a3a3a3", marginTop: 2 }}>
+                      {effort}
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ── Admin: AI fix prompt ─────────────────────────────────────── */}
+      {isAdmin && (
+        <section style={section}>
+          <div style={eyebrow}>Admin — AI fix prompt</div>
+          <AiFixPrompt result={result} />
+        </section>
+      )}
+
+      {/* ── 04 — Quiet CTA ───────────────────────────────────────────── */}
+      <section style={{ ...section, paddingBottom: "clamp(64px, 8vw, 96px)" }}>
+        <div style={eyebrow}>04 — If you&apos;d rather not DIY</div>
+        <div
+          style={{
+            marginTop: 24,
+            padding: "clamp(24px, 4vw, 36px)",
+            background: "white",
+            border: "1px solid rgba(23,23,23,0.07)",
+            borderRadius: 8,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 28,
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+            <h3
+              style={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontSize: "clamp(24px, 3vw, 32px)",
+                fontWeight: 400,
+                margin: "0 0 10px",
+                letterSpacing: -0.5,
+                color: "#171717",
+              }}
+            >
+              I can fix these for you.
+            </h3>
+            <p
+              style={{
+                margin: 0,
+                fontSize: 14,
+                color: "#525252",
+                lineHeight: 1.65,
+                maxWidth: 460,
+              }}
+            >
+              Book a free 20-minute call. We walk through your top fixes together —
+              no pitch, no upsell. You leave with a clear plan even if we never
+              work together.
+            </p>
+          </div>
+          <a
+            href="https://calendly.com/ryderschilling/free-20-minute-call"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: "14px 28px",
+              background: "#171717",
+              color: "white",
+              borderRadius: 6,
+              fontSize: 14,
+              fontWeight: 600,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              textDecoration: "none",
+              display: "inline-block",
+              flexShrink: 0,
+            }}
+          >
+            Book a free call →
+          </a>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function Home() {
   const [phase, setPhase] = useState<Phase>("hero");
@@ -2055,6 +3414,7 @@ export default function Home() {
   const [tab, setTab] = useState<"single" | "compare">("single");
   const [isAdmin, setIsAdmin] = useState(false);
   const [hasGated, setHasGated] = useState(false);
+  const isDesktop = !useIsMobile(1024);
 
   const saveRecentUrl = (url: string) => {
     try {
@@ -2185,20 +3545,11 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const showTOC = phase === "result" || phase === "compare";
-  const resultTocSections = [
-    { id: "overview", label: "Overview" },
-    { id: "fixes",    label: "Top fixes" },
-    ...(result?.pageSpeed ? [{ id: "speed", label: "Performance" }] : []),
-    { id: "ai",       label: "AI prompt" },
-    { id: "seo",      label: "SEO" },
-    { id: "aeo",      label: "AEO" },
-    { id: "geo",      label: "GEO" },
-  ];
-  const tocSections = tab === "compare" ? COMPARE_TOC_SECTIONS : resultTocSections;
+  // TOC only shown for the compare view; result uses the new D3 sticky header
+  const showCompareTOC = phase === "compare";
 
   const contentStyle: React.CSSProperties = {
-    maxWidth: 680,
+    maxWidth: phase === "result" && isDesktop ? 960 : 680,
     width: "100%",
     margin: "0 auto",
     display: "flex",
@@ -2207,70 +3558,61 @@ export default function Home() {
   };
 
   return (
-    <div
-      style={{
-        background: "var(--bg)",
-        minHeight: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: phase === "hero" ? "center" : "flex-start",
-      }}
-    >
-      <div style={{ padding: "var(--outer-padding)", width: "100%" }}>
-        {/* Main content — always centered */}
-        <div style={contentStyle}>
-          {phase === "hero" && (
-            <>
-              {error && (
-                <div style={{ ...card, padding: 16, fontSize: 13, color: "var(--fg-3)" }}>
-                  {error}
-                </div>
+    <>
+      {/* ── Result phase: full-width Guided Narrative (D3) design ── */}
+      {phase === "result" && result && (
+        <ResultViewD3
+          result={result}
+          isAdmin={isAdmin}
+          onReset={handleReset}
+        />
+      )}
+
+      {/* ── Loading phase: full-width L3 Editorial Anticipation ── */}
+      {phase === "loading" && <LoadingViewL3 url={scanUrl} />}
+
+      {/* ── All other phases: centered single-column layout ── */}
+      {phase !== "result" && phase !== "loading" && (
+        <div
+          style={{
+            background: "var(--bg)",
+            minHeight: "100vh",
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: phase === "hero" ? "center" : "flex-start",
+          }}
+        >
+          <div style={{ padding: "var(--outer-padding)", width: "100%" }}>
+            <div style={contentStyle}>
+              {phase === "hero" && (
+                <>
+                  {error && (
+                    <div style={{ ...card, padding: 16, fontSize: 13, color: "var(--fg-3)" }}>
+                      {error}
+                    </div>
+                  )}
+                  <Hero onScan={handleScan} />
+                </>
               )}
-              <Hero onScan={handleScan} />
-            </>
-          )}
 
-          {phase === "loading" && <LoadingCard url={scanUrl} />}
-
-          {phase === "gate" && result && (
-            <EmailGate result={result} onSubmit={handleGateSubmit} />
-          )}
-
-          {phase === "result" && result && (
-            <>
-              <GradeCard result={result} scanKey={scanKey} />
-              <SubScores result={result} scanKey={scanKey} />
-              <TopFixes checks={result.checks} />
-              {!isAdmin && <CtaBanner />}
-              {result.pageSpeed && (
-                <PageSpeedCard data={result.pageSpeed} />
+              {phase === "gate" && result && (
+                <EmailGate result={result} onSubmit={handleGateSubmit} />
               )}
-              <AiFixPrompt result={result} />
-              {(["seo", "aeo", "geo"] as Category[]).map((cat) => (
-                <CategoryCard
-                  key={cat}
-                  category={cat}
-                  checks={result.checks.filter((c) => c.category === cat)}
-                  score={result.scores[cat]}
-                  id={cat}
-                />
-              ))}
-              <ActionBar onReset={handleReset} />
-            </>
-          )}
 
-          {phase === "compare" && compareResult && (
-            <CompareView result={compareResult} onReset={handleReset} />
-          )}
-        </div>
-      </div>
+              {phase === "compare" && compareResult && (
+                <CompareView result={compareResult} onReset={handleReset} />
+              )}
+            </div>
+          </div>
 
-      {/* Fixed TOC — desktop only, floats right of viewport, does not affect content centering */}
-      {showTOC && (
-        <div className="hidden toc:block" style={{ position: "fixed", right: 32, top: 32 }}>
-          <StickyTOC sections={tocSections} />
+          {/* TOC for compare view only */}
+          {showCompareTOC && (
+            <div className="hidden toc:block" style={{ position: "fixed", right: 32, top: 32 }}>
+              <StickyTOC sections={COMPARE_TOC_SECTIONS} />
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }

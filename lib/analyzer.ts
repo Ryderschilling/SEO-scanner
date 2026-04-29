@@ -419,6 +419,161 @@ function checkSitemap(hasSitemap: boolean): CheckResult {
   };
 }
 
+// ─── New SEO Checks ───────────────────────────────────────────────────────────
+
+function checkNoIndex($: cheerio.CheerioAPI): CheckResult {
+  const metaRobotsContent = $('meta[name="robots"]').attr("content")?.toLowerCase() ?? "";
+  const isNoIndex = metaRobotsContent.includes("noindex");
+  return {
+    id: "seo_noindex",
+    category: "seo",
+    name: "Indexability (noindex check)",
+    passed: !isNoIndex,
+    score: isNoIndex ? 0 : 5,
+    maxScore: 5,
+    description: "Page is not blocking search engines with a noindex directive",
+    recommendation: isNoIndex
+      ? `CRITICAL: This page has a noindex directive (meta robots: "${metaRobotsContent}"). Google cannot index it regardless of any other SEO work. Remove or change this tag immediately — unless this page is intentionally hidden from search.`
+      : "Page is indexable — no noindex directives found.",
+    detail: isNoIndex ? `meta robots: "${metaRobotsContent}"` : "Indexable",
+  };
+}
+
+function checkWordCount($: cheerio.CheerioAPI): CheckResult {
+  const text = $("body").text().replace(/\s+/g, " ").trim();
+  const words = text.split(" ").filter((w) => w.length > 1).length;
+  const passed = words >= 300;
+  let recommendation = "";
+  if (words < 150) {
+    recommendation = `Only ${words} words — severely thin content. Google actively suppresses pages under 300 words in rankings. Add substantial, unique content that serves the user's intent.`;
+  } else if (words < 300) {
+    recommendation = `${words} words — thin content. Aim for at least 300+ words minimum. Ideal for most service pages: 600–1,200 words with supporting detail, FAQs, and context.`;
+  } else if (words < 600) {
+    recommendation = `${words} words — acceptable but lean. Expanding to 600+ words with FAQs, process sections, or supporting detail will improve ranking potential and featured snippet eligibility.`;
+  } else {
+    recommendation = `${words} words — solid content depth.`;
+  }
+  return {
+    id: "seo_word_count",
+    category: "seo",
+    name: "Content Depth (Word Count)",
+    passed,
+    score: words >= 600 ? 4 : words >= 300 ? 2 : 0,
+    maxScore: 4,
+    description: "Page has at least 300 words of content (thin content threshold)",
+    recommendation,
+    detail: `${words.toLocaleString()} words`,
+  };
+}
+
+function checkLangAttribute($: cheerio.CheerioAPI): CheckResult {
+  const lang = $("html").attr("lang");
+  const passed = !!lang && lang.length >= 2;
+  return {
+    id: "seo_lang",
+    category: "seo",
+    name: "HTML Lang Attribute",
+    passed,
+    score: passed ? 2 : 0,
+    maxScore: 2,
+    description: 'HTML lang attribute set (e.g. lang="en")',
+    recommendation: passed
+      ? `Language declared as "${lang}".`
+      : 'Add a lang attribute to your <html> tag (e.g., <html lang="en">). Required for international SEO, accessibility compliance (WCAG), and proper language detection by search engines and screen readers.',
+    detail: passed ? `lang="${lang}"` : "Not set",
+  };
+}
+
+function checkTwitterCards($: cheerio.CheerioAPI): CheckResult {
+  const card = $('meta[name="twitter:card"]').attr("content");
+  const title = $('meta[name="twitter:title"]').attr("content");
+  const desc = $('meta[name="twitter:description"]').attr("content");
+  const count = [card, title, desc].filter(Boolean).length;
+  const passed = count >= 2;
+  const missing = [!card && "twitter:card", !title && "twitter:title", !desc && "twitter:description"].filter(Boolean);
+  return {
+    id: "seo_twitter_cards",
+    category: "seo",
+    name: "Twitter / X Card Tags",
+    passed,
+    score: count === 3 ? 3 : count === 2 ? 2 : count === 1 ? 1 : 0,
+    maxScore: 3,
+    description: "Twitter Card meta tags present for social sharing on X",
+    recommendation: passed
+      ? `${count}/3 Twitter Card tags found — good social sharing coverage.`
+      : `Missing Twitter Card tags: ${missing.join(", ")}. These are separate from OG tags and control how your page appears when shared on X/Twitter. Add them alongside your Open Graph tags.`,
+    detail: count === 3 ? "All Twitter Card tags present" : `${count}/3 tags found`,
+  };
+}
+
+function checkPageSpeedScore(pageSpeed: PageSpeedData): CheckResult {
+  const score = pageSpeed.mobile?.score ?? 0;
+  const hasData = score > 0 || !pageSpeed.error;
+  const passed = hasData && score >= 70;
+  return {
+    id: "seo_pagespeed_score",
+    category: "seo",
+    name: "Mobile Page Speed Score",
+    passed,
+    score: score >= 90 ? 3 : score >= 70 ? 2 : score >= 50 ? 1 : 0,
+    maxScore: 3,
+    description: "Google PageSpeed mobile score ≥ 70",
+    recommendation: pageSpeed.error && score === 0
+      ? "PageSpeed data unavailable — test manually at pagespeed.web.dev."
+      : passed
+      ? `Mobile PageSpeed score: ${score}/100 — good.`
+      : `Mobile PageSpeed score: ${score}/100. Google uses mobile-first indexing — a slow mobile score hurts rankings. Fix: compress images (use WebP), minimize JavaScript, use lazy loading, enable browser caching. Target: 70+.`,
+    detail: score > 0 ? `Mobile score: ${score}/100` : "Data unavailable",
+  };
+}
+
+function checkPageSpeedLCP(pageSpeed: PageSpeedData): CheckResult {
+  const lcp = pageSpeed.mobile?.lcp ?? 0;
+  const hasData = lcp > 0;
+  const passed = hasData && lcp <= 2500;
+  return {
+    id: "seo_lcp",
+    category: "seo",
+    name: "Largest Contentful Paint (LCP)",
+    passed,
+    score: hasData && lcp <= 2500 ? 2 : hasData && lcp <= 4000 ? 1 : 0,
+    maxScore: 2,
+    description: "LCP ≤ 2,500ms — Google's Core Web Vitals passing threshold",
+    recommendation: !hasData
+      ? "LCP data unavailable — test manually at pagespeed.web.dev."
+      : passed
+      ? `LCP is ${(lcp / 1000).toFixed(1)}s — passes Core Web Vitals.`
+      : `LCP is ${(lcp / 1000).toFixed(1)}s — above Google's 2.5s threshold. LCP measures how fast your largest visible element loads. Fix: optimize and preload your hero image, use a CDN, improve server response time (TTFB).`,
+    detail: hasData ? `${(lcp / 1000).toFixed(1)}s (mobile)` : "Data unavailable",
+  };
+}
+
+function checkPageSpeedCLS(pageSpeed: PageSpeedData): CheckResult {
+  const cls = pageSpeed.mobile?.cls ?? -1;
+  // CLS can legitimately be 0 (no layout shifts = perfect), so we can't use
+  // cls > 0 to detect "has data". Instead, detect API failure the same way
+  // checkPageSpeedScore does: error present AND mobile score is also 0.
+  const pageSpeedFailed = !!(pageSpeed.error && (pageSpeed.mobile?.score ?? 0) === 0);
+  const hasData = !pageSpeedFailed && cls >= 0;
+  const passed = hasData && cls <= 0.1;
+  return {
+    id: "seo_cls",
+    category: "seo",
+    name: "Cumulative Layout Shift (CLS)",
+    passed,
+    score: hasData && cls <= 0.1 ? 2 : hasData && cls <= 0.25 ? 1 : 0,
+    maxScore: 2,
+    description: "CLS ≤ 0.1 — Google's Core Web Vitals passing threshold",
+    recommendation: !hasData
+      ? "CLS data unavailable — test manually at pagespeed.web.dev."
+      : passed
+      ? `CLS is ${cls} — passes Core Web Vitals.`
+      : `CLS is ${cls} — above Google's 0.1 threshold. CLS measures visual stability (elements jumping around as the page loads). Fix: set explicit width/height on all images and iframes, avoid inserting content above existing elements, reserve space for ads/embeds.`,
+    detail: hasData ? `CLS: ${cls} (mobile)` : "Data unavailable",
+
+  };
+}
+
 // ─── AEO Checks ──────────────────────────────────────────────────────────────
 
 function checkFaqSchema($: cheerio.CheerioAPI): CheckResult {
@@ -589,6 +744,54 @@ function checkHowToSchema($: cheerio.CheerioAPI): CheckResult {
   };
 }
 
+// ─── New AEO Check ────────────────────────────────────────────────────────────
+
+function checkFreshnessSignals($: cheerio.CheerioAPI): CheckResult {
+  let hasDateSchema = false;
+  let dateFound = "";
+
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const data = JSON.parse($(el).html() ?? "{}");
+      const str = JSON.stringify(data);
+      if (str.includes('"dateModified"') || str.includes('"datePublished"')) {
+        hasDateSchema = true;
+        const match = str.match(/"dateModified"\s*:\s*"([^"]+)"|"datePublished"\s*:\s*"([^"]+)"/);
+        if (match) dateFound = (match[1] || match[2] || "").split("T")[0];
+      }
+    } catch {
+      // ignore
+    }
+  });
+
+  const hasTimeTag = $("time[datetime]").length > 0;
+  const hasOgDate =
+    !!$('meta[property="article:modified_time"]').attr("content") ||
+    !!$('meta[property="article:published_time"]').attr("content");
+
+  const passed = hasDateSchema || hasTimeTag || hasOgDate;
+
+  return {
+    id: "aeo_freshness",
+    category: "aeo",
+    name: "Content Freshness Signals",
+    passed,
+    score: passed ? 4 : 0,
+    maxScore: 4,
+    description: "Publication or modification date signals present in schema or HTML",
+    recommendation: passed
+      ? `Date signals detected${dateFound ? ` (${dateFound})` : ""}. AI engines and Google favor recently updated content.`
+      : "No content date signals found. Add datePublished and dateModified to your Article or WebPage schema, and use <time datetime='...'> tags. AI engines prioritize fresh, dated content — especially for competitive queries. Content without dates is harder to rank and cite.",
+    detail: passed
+      ? hasDateSchema
+        ? `Date in JSON-LD${dateFound ? `: ${dateFound}` : ""}`
+        : hasTimeTag
+        ? "Date via <time> tag"
+        : "Date via OG article tags"
+      : "No date signals detected",
+  };
+}
+
 // ─── GEO Checks ──────────────────────────────────────────────────────────────
 
 function checkAuthorSignals($: cheerio.CheerioAPI): CheckResult {
@@ -695,6 +898,7 @@ function checkExternalLinks($: cheerio.CheerioAPI, url: string): CheckResult {
 
 function checkAboutPage($: cheerio.CheerioAPI, url: string): CheckResult {
   const origin = getOrigin(url);
+  void origin;
   let hasAbout = false;
   $("a[href]").each((_, el) => {
     const href = ($(el).attr("href") ?? "").toLowerCase();
@@ -750,6 +954,161 @@ function checkEEATSignals($: cheerio.CheerioAPI): CheckResult {
   };
 }
 
+// ─── New GEO Checks ───────────────────────────────────────────────────────────
+
+function checkSocialProfiles($: cheerio.CheerioAPI): CheckResult {
+  const socialPlatforms = [
+    { name: "LinkedIn", patterns: ["linkedin.com/"] },
+    { name: "Twitter/X", patterns: ["twitter.com/", "x.com/"] },
+    { name: "Facebook", patterns: ["facebook.com/"] },
+    { name: "Instagram", patterns: ["instagram.com/"] },
+    { name: "YouTube", patterns: ["youtube.com/"] },
+  ];
+
+  const found: string[] = [];
+  $("a[href]").each((_, el) => {
+    const href = $(el).attr("href") ?? "";
+    for (const { name, patterns } of socialPlatforms) {
+      if (!found.includes(name) && patterns.some((p) => href.includes(p))) {
+        found.push(name);
+      }
+    }
+  });
+
+  // Also check sameAs in org schema
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const data = JSON.parse($(el).html() ?? "{}");
+      const str = JSON.stringify(data);
+      if (str.includes('"sameAs"') && !found.includes("Schema sameAs")) {
+        found.push("Schema sameAs");
+      }
+    } catch { }
+  });
+
+  const passed = found.length >= 2;
+  return {
+    id: "geo_social_profiles",
+    category: "geo",
+    name: "Social Profile Links",
+    passed,
+    score: found.length >= 3 ? 4 : found.length === 2 ? 3 : found.length === 1 ? 1 : 0,
+    maxScore: 4,
+    description: "Links to social media profiles present (brand entity signal)",
+    recommendation: passed
+      ? `${found.length} social profile link(s) found: ${found.join(", ")}.`
+      : `Only ${found.length} social link(s) detected. Link to your LinkedIn, Twitter/X, Facebook, and Instagram from your site. AI engines like ChatGPT and Perplexity use social profile links to build your brand's knowledge graph and verify your business exists.`,
+    detail: found.length > 0 ? `Found: ${found.join(", ")}` : "No social profile links detected",
+  };
+}
+
+function checkAggregateRating($: cheerio.CheerioAPI): CheckResult {
+  let hasRating = false;
+  let ratingDetail = "";
+
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const data = JSON.parse($(el).html() ?? "{}");
+      const str = JSON.stringify(data);
+      if (str.includes('"AggregateRating"') || str.includes('"aggregateRating"')) {
+        hasRating = true;
+        const ratingMatch = str.match(/"ratingValue"\s*:\s*"?([^",}\s]+)"?/);
+        const countMatch = str.match(/"reviewCount"\s*:\s*"?([^",}\s]+)"?/);
+        if (ratingMatch && countMatch) {
+          ratingDetail = `${ratingMatch[1]} stars (${countMatch[1]} reviews)`;
+        }
+      }
+    } catch { }
+  });
+
+  return {
+    id: "geo_aggregate_rating",
+    category: "geo",
+    name: "Review / Rating Schema",
+    passed: hasRating,
+    score: hasRating ? 3 : 0,
+    maxScore: 3,
+    description: "AggregateRating schema present — enables star ratings in Google SERPs",
+    recommendation: hasRating
+      ? `AggregateRating schema found${ratingDetail ? `: ${ratingDetail}` : ""}. This qualifies your page for star ratings in Google search results.`
+      : "No AggregateRating schema found. If you have customer reviews or testimonials, add AggregateRating JSON-LD. This enables gold star ratings to appear in Google SERPs — significantly improving click-through rate. Connect a review platform (Google, Trustpilot, etc.) and mark it up.",
+    detail: hasRating ? ratingDetail || "AggregateRating schema found" : "Not found",
+  };
+}
+
+function checkContactInfo($: cheerio.CheerioAPI): CheckResult {
+  const bodyText = $("body").text();
+
+  const phoneRegex = /(\+?1?\s*[\-(.]?\s*\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4})/;
+  const hasPhone = phoneRegex.test(bodyText);
+
+  const emailRegex = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+  const hasEmail = emailRegex.test(bodyText);
+
+  let hasContactLink = false;
+  $("a[href]").each((_, el) => {
+    const href = ($(el).attr("href") ?? "").toLowerCase();
+    const text = ($(el).text() ?? "").toLowerCase();
+    if (href.includes("contact") || text.includes("contact us") || text.trim() === "contact") {
+      hasContactLink = true;
+    }
+  });
+
+  const signals = [
+    hasPhone && "phone number",
+    hasEmail && "email address",
+    hasContactLink && "contact page link",
+  ].filter(Boolean) as string[];
+
+  const passed = signals.length >= 1;
+  return {
+    id: "geo_contact_info",
+    category: "geo",
+    name: "Contact Information",
+    passed,
+    score: signals.length >= 2 ? 3 : signals.length === 1 ? 1 : 0,
+    maxScore: 3,
+    description: "Phone number, email, or contact page link visible on page",
+    recommendation: passed
+      ? `Contact signals found: ${signals.join(", ")}.`
+      : "No contact information found — no phone number, email address, or contact page link detected. Visible contact info is a critical trust signal for both Google and AI engines. Add a phone number, email, or a prominent 'Contact Us' link.",
+    detail: passed ? `Found: ${signals.join(", ")}` : "No contact info detected",
+  };
+}
+
+function checkPrivacyPolicy($: cheerio.CheerioAPI): CheckResult {
+  let hasPrivacy = false;
+
+  $("a[href]").each((_, el) => {
+    const href = ($(el).attr("href") ?? "").toLowerCase();
+    const text = ($(el).text() ?? "").toLowerCase();
+    if (
+      href.includes("privacy") ||
+      text.includes("privacy policy") ||
+      text.includes("privacy") ||
+      href.includes("terms") ||
+      text.includes("terms of service") ||
+      text.includes("terms & conditions")
+    ) {
+      hasPrivacy = true;
+    }
+  });
+
+  return {
+    id: "geo_privacy_policy",
+    category: "geo",
+    name: "Privacy Policy / Legal Pages",
+    passed: hasPrivacy,
+    score: hasPrivacy ? 2 : 0,
+    maxScore: 2,
+    description: "Privacy policy or terms of service link present",
+    recommendation: hasPrivacy
+      ? "Privacy/legal page link detected — good trust and legitimacy signal."
+      : "No privacy policy or terms link found. A privacy policy is a basic legitimacy signal that AI engines and Google use to assess site trustworthiness. It's also legally required in most jurisdictions (GDPR, CCPA). Add a link in your footer.",
+    detail: hasPrivacy ? "Privacy/legal link found" : "Not found",
+  };
+}
+
 // ─── Main Analyzer ───────────────────────────────────────────────────────────
 
 export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
@@ -771,15 +1130,16 @@ export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
     });
     html = await res.text();
   } catch (err) {
+    // Max scores: SEO=71, AEO=34, GEO=32, Overall=137
     return {
       url,
       timestamp: new Date().toISOString(),
       checks: [],
       scores: {
-        seo: { earned: 0, max: 38, percentage: 0 },
-        aeo: { earned: 0, max: 30, percentage: 0 },
-        geo: { earned: 0, max: 20, percentage: 0 },
-        overall: { earned: 0, max: 88, percentage: 0 },
+        seo: { earned: 0, max: 71, percentage: 0 },
+        aeo: { earned: 0, max: 34, percentage: 0 },
+        geo: { earned: 0, max: 32, percentage: 0 },
+        overall: { earned: 0, max: 137, percentage: 0 },
       },
       grade: "F",
       error: `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`,
@@ -798,7 +1158,7 @@ export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
 
   // Build all checks
   const checks: CheckResult[] = [
-    // SEO
+    // SEO — original 13 checks
     checkTitle($),
     checkMetaDescription($),
     checkH1($),
@@ -812,19 +1172,34 @@ export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
     checkInternalLinks($, url),
     checkRobots(hasRobots),
     checkSitemap(hasSitemap),
-    // AEO
+    // SEO — 7 new checks
+    checkNoIndex($),
+    checkWordCount($),
+    checkLangAttribute($),
+    checkTwitterCards($),
+    checkPageSpeedScore(pageSpeed),
+    checkPageSpeedLCP(pageSpeed),
+    checkPageSpeedCLS(pageSpeed),
+    // AEO — original 6 checks
     checkFaqSchema($),
     checkQuestionHeadings($),
     checkConciseParagraphs($),
     checkLists($),
     checkTables($),
     checkHowToSchema($),
-    // GEO
+    // AEO — 1 new check
+    checkFreshnessSignals($),
+    // GEO — original 5 checks
     checkAuthorSignals($),
     checkOrgSchema($),
     checkExternalLinks($, url),
     checkAboutPage($, url),
     checkEEATSignals($),
+    // GEO — 4 new checks
+    checkSocialProfiles($),
+    checkAggregateRating($),
+    checkContactInfo($),
+    checkPrivacyPolicy($),
   ];
 
   const seoScore = scoreCategory(checks, "seo");
