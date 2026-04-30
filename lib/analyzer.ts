@@ -867,19 +867,45 @@ function checkOrgSchema($: cheerio.CheerioAPI): CheckResult {
 }
 
 function checkExternalLinks($: cheerio.CheerioAPI, url: string): CheckResult {
-  const origin = getOrigin(url);
-  const authorityDomains = [".gov", ".edu", "wikipedia.org", "nytimes.com", "reuters.com", "bbc.com", "forbes.com", "harvard.edu", "stanford.edu", "nih.gov", "cdc.gov"];
+  let pageHostname = "";
+  try { pageHostname = new URL(getOrigin(url)).hostname; } catch { /* ignore */ }
+
+  // Treat any of these TLDs/domains as authoritative citations
+  const authorityTLDs = [".gov", ".edu"];
+  const authorityDomains = [
+    "wikipedia.org", "nytimes.com", "reuters.com", "bbc.com", "bbc.co.uk",
+    "forbes.com", "nih.gov", "cdc.gov", "harvard.edu", "stanford.edu",
+    "wsj.com", "washingtonpost.com", "apnews.com",
+  ];
+
   let authorityLinkCount = 0;
   let totalExternal = 0;
+
   $("a[href]").each((_, el) => {
-    const href = $(el).attr("href") ?? "";
-    if (href.startsWith("http") && !href.startsWith(origin)) {
-      totalExternal++;
-      if (authorityDomains.some((d) => href.includes(d))) {
-        authorityLinkCount++;
-      }
-    }
+    let href = $(el).attr("href") ?? "";
+
+    // Normalize protocol-relative URLs (//example.com/path)
+    if (href.startsWith("//")) href = "https:" + href;
+
+    // Only process absolute HTTP(S) links
+    if (!href.startsWith("http://") && !href.startsWith("https://")) return;
+
+    let hrefHostname = "";
+    try { hrefHostname = new URL(href).hostname; } catch { return; }
+
+    // Skip same-origin links (handles www vs non-www correctly via hostname)
+    if (!hrefHostname || hrefHostname === pageHostname) return;
+    // Also skip if one is a subdomain of the other (e.g. blog.example.com vs example.com)
+    if (pageHostname && (hrefHostname.endsWith("." + pageHostname) || pageHostname.endsWith("." + hrefHostname))) return;
+
+    totalExternal++;
+
+    const isAuthority =
+      authorityTLDs.some((tld) => hrefHostname.endsWith(tld)) ||
+      authorityDomains.some((d) => hrefHostname === d || hrefHostname.endsWith("." + d));
+    if (isAuthority) authorityLinkCount++;
   });
+
   const passed = totalExternal >= 2;
   return {
     id: "geo_external_links",
@@ -896,20 +922,40 @@ function checkExternalLinks($: cheerio.CheerioAPI, url: string): CheckResult {
   };
 }
 
-function checkAboutPage($: cheerio.CheerioAPI, url: string): CheckResult {
-  const origin = getOrigin(url);
-  void origin;
+function checkAboutPage($: cheerio.CheerioAPI, url: string, html: string): CheckResult {
+  void url;
   let hasAbout = false;
+
+  // Primary: DOM traversal via Cheerio
   $("a[href]").each((_, el) => {
     const href = ($(el).attr("href") ?? "").toLowerCase();
     if (href.includes("about") || href.includes("/team") || href.includes("/company") || href.includes("/who-we-are")) {
       hasAbout = true;
     }
   });
-  const bodyText = $("body").text().toLowerCase();
-  if (!hasAbout && (bodyText.includes("about us") || bodyText.includes("about me") || bodyText.includes("our story") || bodyText.includes("who we are"))) {
-    hasAbout = true;
+
+  // Body text signals
+  if (!hasAbout) {
+    const bodyText = $("body").text().toLowerCase();
+    if (bodyText.includes("about us") || bodyText.includes("about me") || bodyText.includes("our story") || bodyText.includes("who we are")) {
+      hasAbout = true;
+    }
   }
+
+  // Fallback: raw HTML regex — catches footer links Cheerio may drop on malformed markup
+  if (!hasAbout) {
+    const rawLower = html.toLowerCase();
+    // href="/about", href="/about-us", href="/team", href="/company", href="/who-we-are"
+    if (
+      /href=["'][^"']*\/about[^"']*["']/.test(rawLower) ||
+      /href=["'][^"']*\/team[^"']*["']/.test(rawLower) ||
+      /href=["'][^"']*\/company[^"']*["']/.test(rawLower) ||
+      /href=["'][^"']*\/who-we-are[^"']*["']/.test(rawLower)
+    ) {
+      hasAbout = true;
+    }
+  }
+
   return {
     id: "geo_about_page",
     category: "geo",
@@ -975,13 +1021,23 @@ function checkSocialProfiles($: cheerio.CheerioAPI): CheckResult {
     }
   });
 
-  // Also check sameAs in org schema
+  // Also check sameAs arrays in JSON-LD — iterate every URL and match against platform list
   $('script[type="application/ld+json"]').each((_, el) => {
     try {
       const data = JSON.parse($(el).html() ?? "{}");
-      const str = JSON.stringify(data);
-      if (str.includes('"sameAs"') && !found.includes("Schema sameAs")) {
-        found.push("Schema sameAs");
+      const entries = Array.isArray(data) ? data : [data];
+      for (const entry of entries) {
+        const sameAs = entry["sameAs"];
+        if (!sameAs) continue;
+        const urls: unknown[] = Array.isArray(sameAs) ? sameAs : [sameAs];
+        for (const sameAsUrl of urls) {
+          if (typeof sameAsUrl !== "string") continue;
+          for (const { name, patterns } of socialPlatforms) {
+            if (!found.includes(name) && patterns.some((p) => sameAsUrl.includes(p))) {
+              found.push(name);
+            }
+          }
+        }
       }
     } catch { }
   });
@@ -1076,9 +1132,10 @@ function checkContactInfo($: cheerio.CheerioAPI): CheckResult {
   };
 }
 
-function checkPrivacyPolicy($: cheerio.CheerioAPI): CheckResult {
+function checkPrivacyPolicy($: cheerio.CheerioAPI, html: string): CheckResult {
   let hasPrivacy = false;
 
+  // Primary: DOM traversal via Cheerio
   $("a[href]").each((_, el) => {
     const href = ($(el).attr("href") ?? "").toLowerCase();
     const text = ($(el).text() ?? "").toLowerCase();
@@ -1093,6 +1150,20 @@ function checkPrivacyPolicy($: cheerio.CheerioAPI): CheckResult {
       hasPrivacy = true;
     }
   });
+
+  // Fallback: raw HTML regex — catches footer links Cheerio may drop on malformed markup
+  if (!hasPrivacy) {
+    const rawLower = html.toLowerCase();
+    if (
+      /href=["'][^"']*\/privacy[^"']*["']/.test(rawLower) ||
+      /href=["'][^"']*\/terms[^"']*["']/.test(rawLower) ||
+      // link text fallback: >privacy< or >terms<
+      />\s*privacy[^<]*</i.test(rawLower) ||
+      />\s*terms[^<]*</i.test(rawLower)
+    ) {
+      hasPrivacy = true;
+    }
+  }
 
   return {
     id: "geo_privacy_policy",
@@ -1130,16 +1201,16 @@ export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
     });
     html = await res.text();
   } catch (err) {
-    // Max scores: SEO=71, AEO=34, GEO=32, Overall=137
+    // Max scores: SEO=76, AEO=39, GEO=32, Overall=147
     return {
       url,
       timestamp: new Date().toISOString(),
       checks: [],
       scores: {
-        seo: { earned: 0, max: 71, percentage: 0 },
-        aeo: { earned: 0, max: 34, percentage: 0 },
+        seo: { earned: 0, max: 76, percentage: 0 },
+        aeo: { earned: 0, max: 39, percentage: 0 },
         geo: { earned: 0, max: 32, percentage: 0 },
-        overall: { earned: 0, max: 137, percentage: 0 },
+        overall: { earned: 0, max: 147, percentage: 0 },
       },
       grade: "F",
       error: `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`,
@@ -1193,13 +1264,13 @@ export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
     checkAuthorSignals($),
     checkOrgSchema($),
     checkExternalLinks($, url),
-    checkAboutPage($, url),
+    checkAboutPage($, url, html),
     checkEEATSignals($),
     // GEO — 4 new checks
     checkSocialProfiles($),
     checkAggregateRating($),
     checkContactInfo($),
-    checkPrivacyPolicy($),
+    checkPrivacyPolicy($, html),
   ];
 
   const seoScore = scoreCategory(checks, "seo");
