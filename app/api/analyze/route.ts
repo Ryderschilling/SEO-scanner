@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { analyzeUrl } from "@/lib/analyzer";
 
-export const maxDuration = 30;
+export const maxDuration = 55;
 
 export async function POST(req: NextRequest) {
   try {

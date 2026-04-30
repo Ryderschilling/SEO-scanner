@@ -66,27 +66,44 @@ async function fetchPageSpeed(url: string): Promise<PageSpeedData> {
   const keyParam = apiKey ? `&key=${apiKey}` : "";
   const base = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?url=${encodeURIComponent(url)}${keyParam}`;
 
+  const NULL_SCORE: SpeedScore = { score: 0, lcp: 0, cls: 0, fcp: 0, tbt: 0 };
+
   const extractScore = (data: Record<string, unknown>): SpeedScore => {
     try {
       const lr = data.lighthouseResult as Record<string, unknown> | undefined;
-      const audits = (lr?.audits ?? {}) as Record<string, { numericValue?: number }>;
-      const perfScore = ((lr?.categories as Record<string, { score?: number }>)?.performance?.score ?? 0);
+      if (!lr) return NULL_SCORE;
+
+      const audits = (lr.audits ?? {}) as Record<string, { numericValue?: number }>;
+      const perfScore = ((lr.categories as Record<string, { score?: number }>)?.performance?.score ?? 0);
+
+      // LCP / CLS: prefer loadingExperience field data (real-user CrUX data) when available,
+      // fall back to Lighthouse lab values. Field data uses different key paths.
+      const le = data.loadingExperience as Record<string, { percentile?: number; category?: string }> | undefined;
+      const lcp =
+        le?.["LARGEST_CONTENTFUL_PAINT_MS"]?.percentile ??
+        Math.round(audits["largest-contentful-paint"]?.numericValue ?? 0);
+      const cls =
+        le?.["CUMULATIVE_LAYOUT_SHIFT_SCORE"]?.percentile != null
+          ? le["CUMULATIVE_LAYOUT_SHIFT_SCORE"].percentile / 100
+          : Math.round((audits["cumulative-layout-shift"]?.numericValue ?? 0) * 1000) / 1000;
+
       return {
         score: Math.round(perfScore * 100),
-        lcp: Math.round(audits["largest-contentful-paint"]?.numericValue ?? 0),
-        cls: Math.round((audits["cumulative-layout-shift"]?.numericValue ?? 0) * 1000) / 1000,
+        lcp,
+        cls,
         fcp: Math.round(audits["first-contentful-paint"]?.numericValue ?? 0),
         tbt: Math.round(audits["total-blocking-time"]?.numericValue ?? 0),
       };
     } catch {
-      return { score: 0, lcp: 0, cls: 0, fcp: 0, tbt: 0 };
+      return NULL_SCORE;
     }
   };
 
   try {
+    // PageSpeed API can take 20-30 s for complex pages; 12 s is too short.
     const [mobileRes, desktopRes] = await Promise.all([
-      fetch(`${base}&strategy=mobile`, { signal: AbortSignal.timeout(12000) }),
-      fetch(`${base}&strategy=desktop`, { signal: AbortSignal.timeout(12000) }),
+      fetch(`${base}&strategy=mobile`, { signal: AbortSignal.timeout(28000) }),
+      fetch(`${base}&strategy=desktop`, { signal: AbortSignal.timeout(28000) }),
     ]);
 
     const [mobileData, desktopData] = await Promise.all([
@@ -94,16 +111,26 @@ async function fetchPageSpeed(url: string): Promise<PageSpeedData> {
       desktopRes.json() as Promise<Record<string, unknown>>,
     ]);
 
+    // Detect API-level error responses (e.g. quota exceeded, invalid URL, auth failure).
+    // These come back as HTTP 200 with {"error": {"code": N, "message": "..."}} in the body.
+    type ApiError = { code?: number; message?: string; status?: string };
+    const mobileApiErr = (mobileData as { error?: ApiError }).error;
+    const desktopApiErr = (desktopData as { error?: ApiError }).error;
+    if (mobileApiErr || desktopApiErr) {
+      const e = mobileApiErr ?? desktopApiErr!;
+      const msg = `PageSpeed API error (${e.code ?? "?"} ${e.status ?? ""}): ${e.message ?? "unknown"}`;
+      console.error("[PageSpeed]", msg, JSON.stringify(e));
+      return { mobile: NULL_SCORE, desktop: NULL_SCORE, error: msg };
+    }
+
     return {
       mobile: extractScore(mobileData),
       desktop: extractScore(desktopData),
     };
   } catch (err) {
-    return {
-      mobile: { score: 0, lcp: 0, cls: 0, fcp: 0, tbt: 0 },
-      desktop: { score: 0, lcp: 0, cls: 0, fcp: 0, tbt: 0 },
-      error: `PageSpeed fetch failed: ${err instanceof Error ? err.message : String(err)}`,
-    };
+    const msg = `PageSpeed fetch failed: ${err instanceof Error ? err.message : String(err)}`;
+    console.error("[PageSpeed]", msg);
+    return { mobile: NULL_SCORE, desktop: NULL_SCORE, error: msg };
   }
 }
 
@@ -507,9 +534,25 @@ function checkTwitterCards($: cheerio.CheerioAPI): CheckResult {
 }
 
 function checkPageSpeedScore(pageSpeed: PageSpeedData): CheckResult {
+  const noData = !!pageSpeed.error;
   const score = pageSpeed.mobile?.score ?? 0;
-  const hasData = score > 0 || !pageSpeed.error;
-  const passed = hasData && score >= 70;
+  const passed = !noData && score >= 70;
+
+  // Neutral when no data — don't penalize what we can't measure
+  if (noData) {
+    return {
+      id: "seo_pagespeed_score",
+      category: "seo",
+      name: "Mobile Page Speed Score",
+      passed: true,
+      score: 3,
+      maxScore: 3,
+      description: "Google PageSpeed mobile score ≥ 70",
+      recommendation: "PageSpeed data unavailable — test manually at pagespeed.web.dev.",
+      detail: "Data unavailable",
+    };
+  }
+
   return {
     id: "seo_pagespeed_score",
     category: "seo",
@@ -518,59 +561,84 @@ function checkPageSpeedScore(pageSpeed: PageSpeedData): CheckResult {
     score: score >= 90 ? 3 : score >= 70 ? 2 : score >= 50 ? 1 : 0,
     maxScore: 3,
     description: "Google PageSpeed mobile score ≥ 70",
-    recommendation: pageSpeed.error && score === 0
-      ? "PageSpeed data unavailable — test manually at pagespeed.web.dev."
-      : passed
+    recommendation: passed
       ? `Mobile PageSpeed score: ${score}/100 — good.`
       : `Mobile PageSpeed score: ${score}/100. Google uses mobile-first indexing — a slow mobile score hurts rankings. Fix: compress images (use WebP), minimize JavaScript, use lazy loading, enable browser caching. Target: 70+.`,
-    detail: score > 0 ? `Mobile score: ${score}/100` : "Data unavailable",
+    detail: `Mobile score: ${score}/100`,
   };
 }
 
 function checkPageSpeedLCP(pageSpeed: PageSpeedData): CheckResult {
+  const noData = !!pageSpeed.error;
   const lcp = pageSpeed.mobile?.lcp ?? 0;
-  const hasData = lcp > 0;
+  // lcp = 0 with no error means API returned valid data but couldn't measure — also treat as no data
+  const hasData = !noData && lcp > 0;
   const passed = hasData && lcp <= 2500;
+
+  // Neutral when no data — don't penalize what we can't measure
+  if (!hasData) {
+    return {
+      id: "seo_lcp",
+      category: "seo",
+      name: "Largest Contentful Paint (LCP)",
+      passed: true,
+      score: 2,
+      maxScore: 2,
+      description: "LCP ≤ 2,500ms — Google's Core Web Vitals passing threshold",
+      recommendation: "LCP data unavailable — test manually at pagespeed.web.dev.",
+      detail: "Data unavailable",
+    };
+  }
+
   return {
     id: "seo_lcp",
     category: "seo",
     name: "Largest Contentful Paint (LCP)",
     passed,
-    score: hasData && lcp <= 2500 ? 2 : hasData && lcp <= 4000 ? 1 : 0,
+    score: lcp <= 2500 ? 2 : lcp <= 4000 ? 1 : 0,
     maxScore: 2,
     description: "LCP ≤ 2,500ms — Google's Core Web Vitals passing threshold",
-    recommendation: !hasData
-      ? "LCP data unavailable — test manually at pagespeed.web.dev."
-      : passed
+    recommendation: passed
       ? `LCP is ${(lcp / 1000).toFixed(1)}s — passes Core Web Vitals.`
       : `LCP is ${(lcp / 1000).toFixed(1)}s — above Google's 2.5s threshold. LCP measures how fast your largest visible element loads. Fix: optimize and preload your hero image, use a CDN, improve server response time (TTFB).`,
-    detail: hasData ? `${(lcp / 1000).toFixed(1)}s (mobile)` : "Data unavailable",
+    detail: `${(lcp / 1000).toFixed(1)}s (mobile)`,
   };
 }
 
 function checkPageSpeedCLS(pageSpeed: PageSpeedData): CheckResult {
-  const cls = pageSpeed.mobile?.cls ?? -1;
-  // CLS can legitimately be 0 (no layout shifts = perfect), so we can't use
-  // cls > 0 to detect "has data". Instead, detect API failure the same way
-  // checkPageSpeedScore does: error present AND mobile score is also 0.
-  const pageSpeedFailed = !!(pageSpeed.error && (pageSpeed.mobile?.score ?? 0) === 0);
-  const hasData = !pageSpeedFailed && cls >= 0;
-  const passed = hasData && cls <= 0.1;
+  // CLS can legitimately be 0 (perfect — no layout shifts), so 0 is valid data.
+  // Use pageSpeed.error as the single source of truth for "no data".
+  const noData = !!pageSpeed.error;
+  const cls = pageSpeed.mobile?.cls ?? 0;
+  const passed = !noData && cls <= 0.1;
+
+  // Neutral when no data — don't penalize what we can't measure
+  if (noData) {
+    return {
+      id: "seo_cls",
+      category: "seo",
+      name: "Cumulative Layout Shift (CLS)",
+      passed: true,
+      score: 2,
+      maxScore: 2,
+      description: "CLS ≤ 0.1 — Google's Core Web Vitals passing threshold",
+      recommendation: "CLS data unavailable — test manually at pagespeed.web.dev.",
+      detail: "Data unavailable",
+    };
+  }
+
   return {
     id: "seo_cls",
     category: "seo",
     name: "Cumulative Layout Shift (CLS)",
     passed,
-    score: hasData && cls <= 0.1 ? 2 : hasData && cls <= 0.25 ? 1 : 0,
+    score: cls <= 0.1 ? 2 : cls <= 0.25 ? 1 : 0,
     maxScore: 2,
     description: "CLS ≤ 0.1 — Google's Core Web Vitals passing threshold",
-    recommendation: !hasData
-      ? "CLS data unavailable — test manually at pagespeed.web.dev."
-      : passed
+    recommendation: passed
       ? `CLS is ${cls} — passes Core Web Vitals.`
       : `CLS is ${cls} — above Google's 0.1 threshold. CLS measures visual stability (elements jumping around as the page loads). Fix: set explicit width/height on all images and iframes, avoid inserting content above existing elements, reserve space for ads/embeds.`,
-    detail: hasData ? `CLS: ${cls} (mobile)` : "Data unavailable",
-
+    detail: `CLS: ${cls} (mobile)`,
   };
 }
 
@@ -866,37 +934,58 @@ function checkOrgSchema($: cheerio.CheerioAPI): CheckResult {
   };
 }
 
-function checkExternalLinks($: cheerio.CheerioAPI, url: string): CheckResult {
+function checkExternalLinks($: cheerio.CheerioAPI, url: string, html: string): CheckResult {
+  // Strip www. from both sides before comparing so www.example.com == example.com
+  const stripWww = (h: string) => h.replace(/^www\./, "");
+
   let pageHostname = "";
-  try { pageHostname = new URL(getOrigin(url)).hostname; } catch { /* ignore */ }
+  try { pageHostname = stripWww(new URL(getOrigin(url)).hostname); } catch { /* ignore */ }
 
   // Treat any of these TLDs/domains as authoritative citations
-  const authorityTLDs = [".gov", ".edu"];
+  const authorityTLDs = [".gov", ".edu", ".org"];
   const authorityDomains = [
     "wikipedia.org", "nytimes.com", "reuters.com", "bbc.com", "bbc.co.uk",
     "forbes.com", "nih.gov", "cdc.gov", "harvard.edu", "stanford.edu",
     "wsj.com", "washingtonpost.com", "apnews.com",
+    // State / county government portals (common for local businesses)
+    "myfloridalicense.com", "myflorida.com", "flhsmv.gov", "floridahealth.gov",
+    "state.fl.us", "co.walton.fl.us", "co.okaloosa.fl.us", "co.bay.fl.us",
+    "irs.gov", "sba.gov", "bbb.org", "ftc.gov",
   ];
+
+  const externalHrefs = new Set<string>();
+
+  // ── Primary: Cheerio DOM traversal ──────────────────────────────────────────
+  $("a[href]").each((_, el) => {
+    let href = $(el).attr("href") ?? "";
+    if (href.startsWith("//")) href = "https:" + href;
+    if (!href.startsWith("http://") && !href.startsWith("https://")) return;
+    externalHrefs.add(href);
+  });
+
+  // ── Fallback: regex over raw HTML (catches footer links Cheerio may miss) ──
+  const absoluteLinkRe = /href=["'](https?:\/\/[^"'>\s]+)["']/gi;
+  let m: RegExpExecArray | null;
+  while ((m = absoluteLinkRe.exec(html)) !== null) {
+    externalHrefs.add(m[1]);
+  }
 
   let authorityLinkCount = 0;
   let totalExternal = 0;
 
-  $("a[href]").each((_, el) => {
-    let href = $(el).attr("href") ?? "";
-
-    // Normalize protocol-relative URLs (//example.com/path)
-    if (href.startsWith("//")) href = "https:" + href;
-
-    // Only process absolute HTTP(S) links
-    if (!href.startsWith("http://") && !href.startsWith("https://")) return;
-
+  for (const href of externalHrefs) {
     let hrefHostname = "";
-    try { hrefHostname = new URL(href).hostname; } catch { return; }
+    try { hrefHostname = stripWww(new URL(href).hostname); } catch { continue; }
 
-    // Skip same-origin links (handles www vs non-www correctly via hostname)
-    if (!hrefHostname || hrefHostname === pageHostname) return;
-    // Also skip if one is a subdomain of the other (e.g. blog.example.com vs example.com)
-    if (pageHostname && (hrefHostname.endsWith("." + pageHostname) || pageHostname.endsWith("." + hrefHostname))) return;
+    if (!hrefHostname) continue;
+
+    // Skip same-origin (after www-stripping)
+    if (hrefHostname === pageHostname) continue;
+    // Skip subdomains of the same root (blog.example.com vs example.com)
+    if (pageHostname && (
+      hrefHostname.endsWith("." + pageHostname) ||
+      pageHostname.endsWith("." + hrefHostname)
+    )) continue;
 
     totalExternal++;
 
@@ -904,15 +993,16 @@ function checkExternalLinks($: cheerio.CheerioAPI, url: string): CheckResult {
       authorityTLDs.some((tld) => hrefHostname.endsWith(tld)) ||
       authorityDomains.some((d) => hrefHostname === d || hrefHostname.endsWith("." + d));
     if (isAuthority) authorityLinkCount++;
-  });
+  }
 
-  const passed = totalExternal >= 2;
+  // Pass if at least 1 external link exists
+  const passed = totalExternal >= 1;
   return {
     id: "geo_external_links",
     category: "geo",
     name: "External / Authority Links",
     passed,
-    score: passed ? (authorityLinkCount > 0 ? 4 : 3) : totalExternal === 1 ? 1 : 0,
+    score: authorityLinkCount > 0 ? 4 : passed ? 3 : 0,
     maxScore: 4,
     description: "Links out to external sources (trust signals for AI engines)",
     recommendation: passed
@@ -1263,7 +1353,7 @@ export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
     // GEO — original 5 checks
     checkAuthorSignals($),
     checkOrgSchema($),
-    checkExternalLinks($, url),
+    checkExternalLinks($, url, html),
     checkAboutPage($, url, html),
     checkEEATSignals($),
     // GEO — 4 new checks
