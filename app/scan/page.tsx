@@ -140,6 +140,29 @@ function buildFixPrompt(result: AnalysisResult): string {
   return lines.join("\n");
 }
 
+function buildSeoFixPrompt(result: AnalysisResult): string {
+  const failedSeo = result.checks
+    .filter((c) => c.category === "seo" && !c.passed)
+    .sort((a, b) => b.maxScore - a.maxScore);
+
+  const lines: string[] = [
+    `SEO Fix Request — ${result.url}`,
+    `Scanned: ${new Date(result.timestamp).toLocaleDateString()}`,
+    `SEO Score: ${result.scores.seo.percentage}/100 — ${failedSeo.length} issue${failedSeo.length !== 1 ? "s" : ""} to fix`,
+    "",
+  ];
+
+  failedSeo.forEach((c, i) => {
+    lines.push(`${i + 1}. ${c.name}  (+${c.maxScore} pts)`);
+    if (c.detail) lines.push(`   Current: ${c.detail}`);
+    lines.push(`   Fix: ${c.recommendation}`);
+    lines.push("");
+  });
+
+  lines.push("Please implement all of these SEO fixes in my codebase. For each one, show me exactly what code to add or change.");
+  return lines.join("\n");
+}
+
 // ── Hooks ─────────────────────────────────────────────────────────────────────
 function useTick(target: number, duration = 1400) {
   const [value, setValue] = useState(0);
@@ -928,6 +951,220 @@ function AiFixPrompt({ result }: { result: AnalysisResult }) {
             outline: "none",
           }}
         />
+      )}
+    </div>
+  );
+}
+
+// ── SeoDeepDive ───────────────────────────────────────────────────────────────
+function SeoDeepDive({ result }: { result: AnalysisResult }) {
+  const [copied, setCopied] = useState(false);
+
+  const seoChecks = result.checks.filter((c) => c.category === "seo");
+  const failedSeo = seoChecks
+    .filter((c) => !c.passed)
+    .sort((a, b) => b.maxScore - a.maxScore);
+  const passedSeo = seoChecks.filter((c) => c.passed);
+  const prompt = buildSeoFixPrompt(result);
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(prompt);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2200);
+  };
+
+  return (
+    <div>
+      {/* Header + copy button */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 20,
+          marginBottom: 28,
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <p
+            style={{
+              fontSize: 11,
+              letterSpacing: "0.14em",
+              textTransform: "uppercase",
+              color: "#a3a3a3",
+              fontWeight: 600,
+              marginBottom: 12,
+            }}
+          >
+            04 — SEO deep dive
+          </p>
+          <h2
+            style={{
+              fontFamily: "'Instrument Serif', Georgia, serif",
+              fontSize: "clamp(28px, 4vw, 44px)",
+              lineHeight: 1.1,
+              fontWeight: 400,
+              letterSpacing: "-0.02em",
+              margin: "0 0 12px",
+              color: "#171717",
+            }}
+          >
+            {failedSeo.length > 0
+              ? `${failedSeo.length} SEO issue${failedSeo.length !== 1 ? "s" : ""} to fix.`
+              : "SEO is clean."}
+          </h2>
+          {failedSeo.length > 0 && (
+            <p style={{ fontSize: 15, color: "#525252", lineHeight: 1.6, maxWidth: 540, margin: 0 }}>
+              Copy all errors below and paste into Claude to get exact code fixes for your site.
+            </p>
+          )}
+        </div>
+        {failedSeo.length > 0 && (
+          <button
+            onClick={handleCopy}
+            style={{
+              flexShrink: 0,
+              padding: "12px 22px",
+              background: copied ? "#16a34a" : "#171717",
+              color: "white",
+              border: "none",
+              borderRadius: 6,
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              transition: "background 0.25s",
+              whiteSpace: "nowrap",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            {copied ? "✓ Copied!" : "Copy errors for Claude"}
+          </button>
+        )}
+      </div>
+
+      {/* All-clear state */}
+      {failedSeo.length === 0 && (
+        <div
+          style={{
+            padding: "32px 28px",
+            background: "white",
+            border: "1px solid rgba(23,23,23,0.07)",
+            borderRadius: 8,
+            textAlign: "center",
+          }}
+        >
+          <p style={{ fontSize: 16, fontWeight: 600, color: "#171717", marginBottom: 6 }}>
+            All SEO checks passing ✓
+          </p>
+          <p style={{ fontSize: 14, color: "#727272" }}>
+            {passedSeo.length} checks passed — your SEO fundamentals are solid.
+          </p>
+        </div>
+      )}
+
+      {/* Failed checks — expanded */}
+      {failedSeo.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+          {failedSeo.map((check) => (
+            <div
+              key={check.id}
+              style={{
+                background: "white",
+                border: "1px solid rgba(23,23,23,0.07)",
+                borderRadius: 8,
+                padding: "clamp(16px, 3vw, 24px) clamp(16px, 3vw, 28px)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  gap: 16,
+                  marginBottom: 10,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: "#E8743A",
+                      flexShrink: 0,
+                      display: "inline-block",
+                    }}
+                  />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "#171717" }}>
+                    {check.name}
+                  </span>
+                </div>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "#E8743A",
+                    flexShrink: 0,
+                    fontVariantNumeric: "tabular-nums",
+                  }}
+                >
+                  +{check.maxScore} pts
+                </span>
+              </div>
+              {check.detail && (
+                <div
+                  style={{
+                    fontFamily: "ui-monospace, monospace",
+                    fontSize: 11,
+                    color: "#a3a3a3",
+                    background: "rgba(23,23,23,0.03)",
+                    padding: "6px 10px",
+                    borderRadius: 4,
+                    marginBottom: 10,
+                  }}
+                >
+                  Current: {check.detail}
+                </div>
+              )}
+              <p style={{ fontSize: 13, color: "#525252", lineHeight: 1.6, margin: 0 }}>
+                {check.recommendation}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Passing checks — collapsed pill summary */}
+      {passedSeo.length > 0 && failedSeo.length > 0 && (
+        <div
+          style={{
+            marginTop: 12,
+            padding: "14px 20px",
+            background: "rgba(22,163,74,0.05)",
+            border: "1px solid rgba(22,163,74,0.12)",
+            borderRadius: 8,
+            display: "flex",
+            gap: 10,
+            alignItems: "flex-start",
+          }}
+        >
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "#16a34a",
+              flexShrink: 0,
+              marginTop: 4,
+            }}
+          />
+          <span style={{ fontSize: 13, color: "#525252", lineHeight: 1.55 }}>
+            <strong style={{ color: "#171717" }}>{passedSeo.length} passing:</strong>{" "}
+            {passedSeo.map((c) => c.name).join(" · ")}
+          </span>
+        </div>
       )}
     </div>
   );
@@ -3324,6 +3561,11 @@ function ResultViewD3({
         </div>
       </section>
 
+      {/* ── SEO Deep Dive ────────────────────────────────────────────── */}
+      <section style={section}>
+        <SeoDeepDive result={result} />
+      </section>
+
       {/* ── Admin: AI fix prompt ─────────────────────────────────────── */}
       {isAdmin && (
         <section style={section}>
@@ -3332,9 +3574,11 @@ function ResultViewD3({
         </section>
       )}
 
-      {/* ── 04 — Quiet CTA ───────────────────────────────────────────── */}
+      {/* ── 05 — Quiet CTA ───────────────────────────────────────────── */}
       <section style={{ ...section, paddingBottom: "clamp(64px, 8vw, 96px)" }}>
-        <div style={eyebrow}>04 — If you&apos;d rather not DIY</div>
+        <div style={eyebrow}>05 — Want it done for you?</div>
+
+        {/* SEO CTA */}
         <div
           style={{
             marginTop: 24,
@@ -3347,20 +3591,33 @@ function ResultViewD3({
             gap: 28,
             alignItems: "center",
             justifyContent: "space-between",
+            marginBottom: 12,
           }}
         >
           <div style={{ flex: "1 1 280px", minWidth: 0 }}>
+            <p
+              style={{
+                fontSize: 11,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: "#a3a3a3",
+                fontWeight: 600,
+                marginBottom: 8,
+              }}
+            >
+              SEO fixes
+            </p>
             <h3
               style={{
                 fontFamily: "'Instrument Serif', Georgia, serif",
-                fontSize: "clamp(24px, 3vw, 32px)",
+                fontSize: "clamp(22px, 3vw, 28px)",
                 fontWeight: 400,
                 margin: "0 0 10px",
                 letterSpacing: -0.5,
                 color: "#171717",
               }}
             >
-              I can fix these for you.
+              I can fix your SEO.
             </h3>
             <p
               style={{
@@ -3396,6 +3653,74 @@ function ResultViewD3({
             }}
           >
             Book a free call →
+          </a>
+        </div>
+
+        {/* AI Syndicate GEO/AEO upsell */}
+        <div
+          style={{
+            padding: "clamp(20px, 3vw, 28px) clamp(20px, 3vw, 32px)",
+            background: "rgba(23,23,23,0.02)",
+            border: "1px solid rgba(23,23,23,0.07)",
+            borderRadius: 8,
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 20,
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+            <p
+              style={{
+                fontSize: 11,
+                letterSpacing: "0.1em",
+                textTransform: "uppercase",
+                color: "#a3a3a3",
+                fontWeight: 600,
+                marginBottom: 8,
+              }}
+            >
+              AEO + GEO — AI engine visibility
+            </p>
+            <h3
+              style={{
+                fontSize: "clamp(16px, 2vw, 20px)",
+                fontWeight: 600,
+                margin: "0 0 8px",
+                letterSpacing: -0.3,
+                color: "#171717",
+              }}
+            >
+              Want ChatGPT and Perplexity to cite you?
+            </h3>
+            <p style={{ margin: 0, fontSize: 13, color: "#727272", lineHeight: 1.6, maxWidth: 440 }}>
+              AI Syndicate specializes in getting businesses ranked by AI tools —
+              the next frontier beyond Google. If your AEO or GEO score is low,
+              this is the team to call.
+            </p>
+          </div>
+          <a
+            href="https://aisyndicate.co"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: "12px 22px",
+              background: "none",
+              color: "#171717",
+              borderRadius: 6,
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "inherit",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              textDecoration: "none",
+              display: "inline-block",
+              flexShrink: 0,
+              border: "1px solid rgba(23,23,23,0.2)",
+            }}
+          >
+            Visit AI Syndicate →
           </a>
         </div>
       </section>
