@@ -32,10 +32,18 @@ export interface PageSpeedData {
   error?: string;
 }
 
+// Extracted content used for more specific AI-generated fixes + SERP context
+export interface PageContext {
+  h1?: string;
+  metaDesc?: string;
+  bodySnippet?: string;   // first ~600 chars of visible body text
+}
+
 export interface AnalysisResult {
   url: string;
   timestamp: string;
   pageTitle?: string;
+  pageContext?: PageContext;
   checks: CheckResult[];
   scores: {
     seo: CategoryScore;
@@ -56,6 +64,7 @@ export interface CompareResult {
 
 export interface AnalyzeRequest {
   url: string;
+  targetKeyword?: string;
 }
 
 export interface CompareRequest {
@@ -75,4 +84,49 @@ export interface AiFixesResult {
   fixes: AiFix[];
   model: string;
   generatedAt: string;
+}
+
+// ── SERP ranking types ────────────────────────────────────────────────────────
+
+export interface SerpCompetitor {
+  title: string;
+  url: string;
+  position: number;
+  snippet?: string;
+}
+
+export interface SerpKeywordResult {
+  query: string;
+  rank: number | null;   // null = not found in top 10
+  yourUrl?: string;      // the result URL that matched the scanned site
+  competitors: SerpCompetitor[];
+  error?: string;
+}
+
+export interface SerpResult {
+  keywords: SerpKeywordResult[];
+  generatedAt: string;
+  error?: string;
+}
+
+// ── Multi-page crawl types ────────────────────────────────────────────────────
+
+export interface CrawlPageResult {
+  url: string;
+  grade: string;
+  scores: {
+    seo: CategoryScore;
+    aeo: CategoryScore;
+    geo: CategoryScore;
+    overall: CategoryScore;
+  };
+  pageTitle?: string;
+  error?: string;
+}
+
+export interface CrawlResult {
+  rootUrl: string;
+  pages: CrawlPageResult[];
+  scannedAt: string;
+  error?: string;
 }

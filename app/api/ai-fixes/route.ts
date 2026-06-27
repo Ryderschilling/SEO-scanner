@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { result } = body as { result?: AnalysisResult };
+    const { result } = body as { result?: AnalysisResult; targetKeyword?: string };
 
     if (!result) {
       return NextResponse.json({ error: "Scan result is required" }, { status: 400 });
@@ -62,10 +62,23 @@ export async function POST(req: NextRequest) {
       )
       .join("\n\n");
 
+    // Build rich page context for more specific fixes
+    const ctx = result.pageContext;
+    const ctxLines = [
+      ctx?.h1        ? `H1 heading: "${ctx.h1}"`            : null,
+      ctx?.metaDesc  ? `Current meta description: "${ctx.metaDesc}"` : null,
+      ctx?.bodySnippet
+        ? `Page content excerpt:\n${ctx.bodySnippet.substring(0, 400)}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     const userPrompt = `Website URL: ${result.url}
 Page Title: "${result.pageTitle ?? "Unknown"}"
-
+${ctxLines ? `\nPage Context:\n${ctxLines}\n` : ""}
 These SEO checks failed. Generate a specific, copy-paste-ready fix for each one.
+Use the actual page content above to write fixes specific to THIS site — not generic advice.
 
 ${checksText}
 

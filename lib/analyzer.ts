@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import type { CheckResult, CategoryScore, AnalysisResult, PageSpeedData, SpeedScore } from "./types";
+import type { CheckResult, CategoryScore, AnalysisResult, PageSpeedData, SpeedScore, PageContext, CrawlResult, CrawlPageResult } from "./types";
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
@@ -1272,50 +1272,73 @@ function checkPrivacyPolicy($: cheerio.CheerioAPI, html: string): CheckResult {
 
 // ─── Main Analyzer ───────────────────────────────────────────────────────────
 
-export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
+export interface AnalyzeOptions {
+  /** Skip the PageSpeed API call — use for crawls where speed isn't per-page */
+  skipPageSpeed?: boolean;
+  /** Pre-fetched robots.txt result — avoids re-fetching for multi-page crawls */
+  precomputedRobots?: boolean;
+  /** Pre-fetched sitemap.xml result — avoids re-fetching for multi-page crawls */
+  precomputedSitemap?: boolean;
+  /** Pre-loaded HTML — avoids re-fetching when caller already has it */
+  preHtml?: string;
+}
+
+const FETCH_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.5",
+};
+
+export async function analyzeUrl(rawUrl: string, opts: AnalyzeOptions = {}): Promise<AnalysisResult> {
   const url = normalizeUrl(rawUrl);
   const origin = getOrigin(url);
   const startTime = Date.now();
 
-  let html = "";
-  try {
-    const res = await fetch(url, {
-      signal: AbortSignal.timeout(15000),
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-      },
-    });
-    html = await res.text();
-  } catch (err) {
-    // Max scores: SEO=76, AEO=39, GEO=32, Overall=147
-    return {
-      url,
-      timestamp: new Date().toISOString(),
-      checks: [],
-      scores: {
-        seo: { earned: 0, max: 76, percentage: 0 },
-        aeo: { earned: 0, max: 39, percentage: 0 },
-        geo: { earned: 0, max: 32, percentage: 0 },
-        overall: { earned: 0, max: 147, percentage: 0 },
-      },
-      grade: "F",
-      error: `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`,
-    };
+  let html = opts.preHtml ?? "";
+
+  if (!html) {
+    try {
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(15000),
+        headers: FETCH_HEADERS,
+      });
+      html = await res.text();
+    } catch (err) {
+      // Max scores: SEO=76, AEO=39, GEO=32, Overall=147
+      return {
+        url,
+        timestamp: new Date().toISOString(),
+        checks: [],
+        scores: {
+          seo: { earned: 0, max: 76, percentage: 0 },
+          aeo: { earned: 0, max: 39, percentage: 0 },
+          geo: { earned: 0, max: 32, percentage: 0 },
+          overall: { earned: 0, max: 147, percentage: 0 },
+        },
+        grade: "F",
+        error: `Failed to fetch URL: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
   }
 
   const $ = cheerio.load(html);
   const fetchTimeMs = Date.now() - startTime;
 
-  // Run robots, sitemap, and PageSpeed in parallel
-  const [hasRobots, hasSitemap, pageSpeed] = await Promise.all([
-    fetchRobots(origin),
-    fetchSitemap(origin),
-    fetchPageSpeed(url),
+  // Run robots, sitemap, and PageSpeed — use precomputed values when available
+  const needRobots    = opts.precomputedRobots    === undefined;
+  const needSitemap   = opts.precomputedSitemap   === undefined;
+  const needPageSpeed = !opts.skipPageSpeed;
+
+  const [hasRobotsResult, hasSitemapResult, pageSpeed] = await Promise.all([
+    needRobots   ? fetchRobots(origin)    : Promise.resolve(opts.precomputedRobots as boolean),
+    needSitemap  ? fetchSitemap(origin)   : Promise.resolve(opts.precomputedSitemap as boolean),
+    needPageSpeed ? fetchPageSpeed(url)   : Promise.resolve({ mobile: { score: 0, lcp: 0, cls: 0, fcp: 0, tbt: 0 }, desktop: { score: 0, lcp: 0, cls: 0, fcp: 0, tbt: 0 }, error: "skipped" } as PageSpeedData),
   ]);
+
+  const hasRobots  = hasRobotsResult;
+  const hasSitemap = hasSitemapResult;
 
   // Build all checks
   const checks: CheckResult[] = [
@@ -1370,10 +1393,18 @@ export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
   const overallMax = seoScore.max + aeoScore.max + geoScore.max;
   const overallPct = Math.round((overallEarned / overallMax) * 100);
 
+  // Extract page context for AI fixes and SERP keyword generation
+  const h1      = $("h1").first().text().trim() || undefined;
+  const metaDesc = $('meta[name="description"]').attr("content")?.trim() || undefined;
+  const rawBody  = $("body").text().replace(/\s+/g, " ").trim();
+  const bodySnippet = rawBody.length > 600 ? rawBody.substring(0, 600) + "…" : rawBody || undefined;
+  const pageContext: PageContext = { h1, metaDesc, bodySnippet };
+
   return {
     url,
     timestamp: new Date().toISOString(),
     pageTitle: $("title").first().text().trim() || undefined,
+    pageContext,
     checks,
     scores: {
       seo: seoScore,
@@ -1386,5 +1417,113 @@ export async function analyzeUrl(rawUrl: string): Promise<AnalysisResult> {
     pageSpeed: pageSpeed.error && pageSpeed.mobile.score === 0 && pageSpeed.desktop.score === 0
       ? { ...pageSpeed }
       : pageSpeed,
+  };
+}
+
+// ─── Multi-page Crawler ───────────────────────────────────────────────────────
+
+export async function crawlSite(
+  rootUrl: string,
+  maxPages: number = 8
+): Promise<CrawlResult> {
+  const normalizedRoot = normalizeUrl(rootUrl);
+  const origin = getOrigin(normalizedRoot);
+
+  // Fetch root HTML
+  let rootHtml = "";
+  try {
+    const res = await fetch(normalizedRoot, {
+      signal: AbortSignal.timeout(15000),
+      headers: FETCH_HEADERS,
+    });
+    rootHtml = await res.text();
+  } catch (err) {
+    return {
+      rootUrl: normalizedRoot,
+      pages: [],
+      scannedAt: new Date().toISOString(),
+      error: `Failed to fetch root page: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // Extract unique internal links from root
+  const $ = cheerio.load(rootHtml);
+  const internalUrls = new Set<string>();
+  internalUrls.add(normalizedRoot);
+
+  $("a[href]").each((_, el) => {
+    let href = $(el).attr("href") ?? "";
+    // Resolve relative URLs
+    if (href.startsWith("/")) href = origin + href;
+    // Skip external, hash, query, and non-HTML resources
+    if (!href.startsWith(origin)) return;
+    if (href.includes("#")) href = href.split("#")[0];
+    if (!href) return;
+    if (/\.(pdf|jpg|jpeg|png|gif|svg|css|js|ico|xml|txt|zip|mp4|webp)$/i.test(href)) return;
+    internalUrls.add(href);
+  });
+
+  const urlsToScan = Array.from(internalUrls).slice(0, maxPages);
+
+  // Fetch robots + sitemap once (shared across all pages on this domain)
+  const [hasRobots, hasSitemap] = await Promise.all([
+    fetchRobots(origin),
+    fetchSitemap(origin),
+  ]);
+
+  // Analyze all pages in parallel (no PageSpeed — too slow for batch)
+  const settled = await Promise.allSettled(
+    urlsToScan.map(async (pageUrl): Promise<CrawlPageResult> => {
+      try {
+        const result = await analyzeUrl(pageUrl, {
+          skipPageSpeed: true,
+          precomputedRobots: hasRobots,
+          precomputedSitemap: hasSitemap,
+          preHtml: pageUrl === normalizedRoot ? rootHtml : undefined,
+        });
+
+        return {
+          url: pageUrl,
+          grade: result.grade,
+          scores: result.scores,
+          pageTitle: result.pageTitle,
+          error: result.error,
+        };
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return {
+          url: pageUrl,
+          grade: "F",
+          scores: {
+            seo:     { earned: 0, max: 76, percentage: 0 },
+            aeo:     { earned: 0, max: 39, percentage: 0 },
+            geo:     { earned: 0, max: 32, percentage: 0 },
+            overall: { earned: 0, max: 147, percentage: 0 },
+          },
+          error: errMsg,
+        };
+      }
+    })
+  );
+
+  const pages: CrawlPageResult[] = settled.map((r, i) => {
+    if (r.status === "fulfilled") return r.value;
+    return {
+      url: urlsToScan[i],
+      grade: "F",
+      scores: {
+        seo:     { earned: 0, max: 76, percentage: 0 },
+        aeo:     { earned: 0, max: 39, percentage: 0 },
+        geo:     { earned: 0, max: 32, percentage: 0 },
+        overall: { earned: 0, max: 147, percentage: 0 },
+      },
+      error: "Analysis failed",
+    };
+  });
+
+  return {
+    rootUrl: normalizedRoot,
+    pages,
+    scannedAt: new Date().toISOString(),
   };
 }
